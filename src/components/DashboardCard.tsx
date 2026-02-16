@@ -124,7 +124,7 @@ const DashboardCard = ({ dashboard }: DashboardCardProps) => {
                 {/* Delete Button */}
                 <button
                     onClick={handleDelete}
-                    className="absolute top-3 right-3 p-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-lg"
+                    className="absolute top-3 right-3 p-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-lg border border-red-100/50"
                 >
                     <Trash2 size={14} />
                 </button>
