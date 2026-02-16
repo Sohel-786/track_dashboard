@@ -5,9 +5,8 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { Save, Loader2, ArrowLeft } from 'lucide-react';
 import FileUpload from './FileUpload';
-import { uploadToCloudinaryAction } from '@/app/actions';
+import { saveDashboardAction, deleteDashboardAction } from '@/app/actions';
 import { motion } from 'framer-motion';
-
 
 const DashboardForm = ({ initialData }: { initialData?: any }) => {
     const router = useRouter();
@@ -31,62 +30,53 @@ const DashboardForm = ({ initialData }: { initialData?: any }) => {
         e.preventDefault();
 
         if (!formData.title.trim()) {
-            toast.error('Dashboard Title is required');
+            toast.error('Title is required');
             return;
         }
 
         setLoading(true);
 
-
         try {
-            const uploadPromises = [];
-            let imageOneUrl = initialData?.imageOne || '';
-            let imageTwoUrl = initialData?.imageTwo || '';
-            let excelFileUrl = initialData?.excelFile || '';
-            let excelFileName = initialData?.excelFileName || '';
+            const submitData = new FormData();
 
-            if (files.imageOne) {
-                const formData = new FormData();
-                formData.append('file', files.imageOne);
-                uploadPromises.push(uploadToCloudinaryAction(formData).then((url: string) => imageOneUrl = url));
-            }
-            if (files.imageTwo) {
-                const formData = new FormData();
-                formData.append('file', files.imageTwo);
-                uploadPromises.push(uploadToCloudinaryAction(formData).then((url: string) => imageTwoUrl = url));
-            }
-            if (files.excelFile) {
-                const formData = new FormData();
-                formData.append('file', files.excelFile);
-                formData.append('isRaw', 'true');
-                uploadPromises.push(uploadToCloudinaryAction(formData).then((url: string) => {
-                    excelFileUrl = url;
-                    excelFileName = files.excelFile!.name;
-                }));
-            }
+            if (initialData?._id) submitData.append('id', initialData._id);
+            submitData.append('title', formData.title);
+            submitData.append('description', formData.description);
 
+            if (initialData?.imageOne) submitData.append('existingImageOne', initialData.imageOne);
+            if (initialData?.imageTwo) submitData.append('existingImageTwo', initialData.imageTwo);
+            if (initialData?.excelFile) submitData.append('existingExcelFile', initialData.excelFile);
+            if (initialData?.excelFileName) submitData.append('existingExcelFileName', initialData.excelFileName);
 
-            await Promise.all(uploadPromises);
+            if (files.imageOne) submitData.append('imageOne', files.imageOne);
+            if (files.imageTwo) submitData.append('imageTwo', files.imageTwo);
+            if (files.excelFile) submitData.append('excelFile', files.excelFile);
 
-            const payload = {
-                ...formData,
-                imageOne: imageOneUrl,
-                imageTwo: imageTwoUrl,
-                excelFile: excelFileUrl,
-                excelFileName: excelFileName,
-            };
+            const result = await saveDashboardAction(submitData);
 
-            const res = await fetch(initialData ? `/api/dashboards/${initialData._id}` : '/api/dashboards', {
-                method: initialData ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
+            if (!result.success) throw new Error(result.error);
 
-            if (!res.ok) throw new Error('Failed to save dashboard');
-
-            toast.success(initialData ? 'Dashboard updated!' : 'Dashboard created!');
+            toast.success(initialData ? 'Updated successfully!' : 'Created successfully!');
             router.push('/');
-            router.refresh();
+        } catch (error: any) {
+            toast.error(error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!initialData?._id || !confirm('Permanently delete this entry?')) return;
+
+        setLoading(true);
+        try {
+            const result = await deleteDashboardAction(initialData._id);
+            if (result.success) {
+                toast.success('Deleted successfully');
+                router.push('/');
+            } else {
+                toast.error(result.error || 'Delete failed');
+            }
         } catch (error: any) {
             toast.error(error.message);
         } finally {
@@ -96,111 +86,96 @@ const DashboardForm = ({ initialData }: { initialData?: any }) => {
 
     return (
         <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="max-w-4xl mx-auto py-8 px-4"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-3xl mx-auto py-8 px-4"
         >
             <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold text-foreground">
-                        {initialData ? 'Edit Dashboard' : 'Create New Dashboard'}
-                    </h1>
-                    <p className="text-muted-foreground mt-1">
-                        Fill in the details below to track your dashboard.
-                    </p>
-                </div>
+                <h1 className="text-2xl font-black text-foreground tracking-tight">
+                    {initialData ? 'Edit Entry' : 'New Entry'}
+                </h1>
                 <button
                     onClick={() => router.back()}
-                    className="flex items-center text-sm font-semibold text-muted-foreground hover:text-primary transition-colors cursor-pointer group"
+                    className="flex items-center text-xs font-bold text-muted-foreground hover:text-primary transition-all group"
                 >
-                    <ArrowLeft className="w-5 h-5 mr-2 group-hover:-translate-x-1 transition-transform" />
-                    Back to Registry
+                    <ArrowLeft className="w-3.5 h-3.5 mr-1.5 group-hover:-translate-x-1 transition-transform" />
+                    Back
                 </button>
-
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-8 bg-card p-10 rounded-3xl border border-border shadow-xl">
-                <div className="grid grid-cols-1 gap-8">
-                    <div className="space-y-6">
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-foreground">
-                                Dashboard Title <span className="text-destructive">*</span>
-                            </label>
-
-                            <input
-                                type="text"
-                                placeholder="e.g. Q4 Sales Performance Analysis"
-                                className="w-full px-5 py-4 rounded-2xl bg-background border border-border focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all shadow-sm"
-                                value={formData.title}
-                                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-foreground">Detailed Description</label>
-                            <textarea
-                                placeholder="Outline the key metrics, data sources, and intended audience..."
-                                rows={5}
-                                className="w-full px-5 py-4 rounded-2xl bg-background border border-border focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all resize-none shadow-sm"
-                                value={formData.description}
-                                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            />
-                        </div>
+            <form onSubmit={handleSubmit} className="space-y-6 bg-card p-8 rounded-2xl border border-border/80 shadow-xl">
+                <div className="space-y-5">
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-foreground/60 uppercase tracking-widest ml-1">Title</label>
+                        <input
+                            type="text"
+                            placeholder="Dashboard title"
+                            className="w-full px-4 py-3 rounded-xl bg-background border border-border focus:border-primary outline-none transition-all text-sm font-bold shadow-sm"
+                            value={formData.title}
+                            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                        />
                     </div>
 
-                    <div className="grid md:grid-cols-2 gap-8">
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-bold text-foreground/70 uppercase tracking-widest">Visual Previews</h3>
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-foreground/60 uppercase tracking-widest ml-1">Description</label>
+                        <textarea
+                            placeholder="Internal description"
+                            rows={4}
+                            className="w-full px-4 py-3 rounded-xl bg-background border border-border focus:border-primary outline-none transition-all text-sm font-medium shadow-sm leading-relaxed"
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6 pt-2">
+                    <div className="space-y-3">
+                        <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] ml-1">Visuals</h3>
+                        <div className="space-y-3">
                             <FileUpload
-                                label="Primary View"
+                                label="Primary Image"
                                 accept="image/*"
                                 type="image"
                                 onFileSelect={(file) => setFiles(prev => ({ ...prev, imageOne: file }))}
                                 currentFile={initialData?.imageOne}
                             />
                             <FileUpload
-                                label="Secondary View"
+                                label="Secondary Image"
                                 accept="image/*"
                                 type="image"
                                 onFileSelect={(file) => setFiles(prev => ({ ...prev, imageTwo: file }))}
                                 currentFile={initialData?.imageTwo}
                             />
                         </div>
+                    </div>
 
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-bold text-foreground/70 uppercase tracking-widest">Source Data</h3>
-                            <FileUpload
-                                label="Excel / Spreadsheet File"
-                                accept=".xlsx, .xls"
-                                type="excel"
-                                onFileSelect={(file) => setFiles(prev => ({ ...prev, excelFile: file }))}
-                                currentFile={initialData?.excelFile}
-                            />
-                            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
-                                <p className="text-xs text-primary font-medium flex gap-2">
-                                    <span className="font-bold">Pro Tip:</span>
-                                    Uploading the raw spreadsheet allows other users to download and analyze the data directly.
-                                </p>
-                            </div>
-                        </div>
+                    <div className="space-y-3">
+                        <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] ml-1">Data Source</h3>
+                        <FileUpload
+                            label="Spreadsheet"
+                            accept=".xlsx, .xls"
+                            type="excel"
+                            onFileSelect={(file) => setFiles(prev => ({ ...prev, excelFile: file }))}
+                            currentFile={initialData?.excelFile}
+                        />
                     </div>
                 </div>
 
-                <div className="pt-8 flex flex-col sm:flex-row gap-4 border-t border-border">
+                <div className="pt-6 flex flex-col sm:flex-row gap-3 border-t border-border/40">
                     <button
                         type="submit"
                         disabled={loading}
-                        className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground py-5 rounded-2xl font-black text-lg flex items-center justify-center space-x-3 shadow-xl shadow-primary/20 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
+                        className="flex-1 bg-primary text-primary-foreground py-3.5 rounded-xl font-black text-sm flex items-center justify-center space-x-2 shadow-lg hover:-translate-y-0.5 transition-all active:scale-[0.98] disabled:opacity-70 cursor-pointer"
                     >
                         {loading ? (
                             <>
-                                <Loader2 className="w-6 h-6 animate-spin" />
-                                <span>Synchronizing...</span>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span>Saving...</span>
                             </>
                         ) : (
                             <>
-                                <Save className="w-6 h-6" />
-                                <span>{initialData ? 'Update Dashboard' : 'Publish Dashboard'}</span>
+                                <Save className="w-4 h-4" />
+                                <span>Save</span>
                             </>
                         )}
                     </button>
@@ -208,25 +183,15 @@ const DashboardForm = ({ initialData }: { initialData?: any }) => {
                     {initialData && (
                         <button
                             type="button"
-                            onClick={async () => {
-                                if (confirm('Permanently delete this entry?')) {
-                                    const res = await fetch(`/api/dashboards/${initialData._id}`, { method: 'DELETE' });
-                                    if (res.ok) {
-                                        toast.success('Deleted');
-                                        router.push('/');
-                                        router.refresh();
-                                    }
-                                }
-                            }}
-                            className="px-8 py-5 rounded-2xl font-bold bg-destructive/10 text-destructive hover:bg-destructive hover:text-white transition-all border border-destructive/20 cursor-pointer"
+                            onClick={handleDelete}
+                            disabled={loading}
+                            className="px-6 py-3.5 rounded-xl font-bold text-sm bg-destructive/5 text-destructive hover:bg-destructive hover:text-white transition-all border border-destructive/10 cursor-pointer disabled:opacity-50"
                         >
-                            Delete Entry
+                            Delete
                         </button>
                     )}
                 </div>
-
             </form>
-
         </motion.div>
     );
 };

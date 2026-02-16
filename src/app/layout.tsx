@@ -16,8 +16,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TraceDash | Dashboard Management",
-  description: "Advanced personal dashboard traceability management system.",
+  title: "TraceDash | Advanced Analytical Traceability Dashboard",
+  description: "The professional standard for managing analytical assets, spreadsheets, and visual reports in one centralized repository.",
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
 };
 
 export default function RootLayout({

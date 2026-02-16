@@ -1,14 +1,17 @@
+'use client';
+
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { FileSpreadsheet, Download, ExternalLink, Edit, Maximize2, Trash2 } from 'lucide-react';
+import { FileSpreadsheet, Download, Edit, Maximize2, Trash2, Calendar, ChevronRight } from 'lucide-react';
 
 import { FullScreenImageViewer } from './FullScreenImageViewer';
 import { IDashboard } from '@/models/Dashboard';
 import { toast } from 'react-hot-toast';
+import { cn } from '@/lib/utils';
 
 interface DashboardCardProps {
-    dashboard: IDashboard & { _id: string };
+    dashboard: IDashboard & { _id: string; createdAt?: string };
 }
 
 const DashboardCard = ({ dashboard }: DashboardCardProps) => {
@@ -35,7 +38,7 @@ const DashboardCard = ({ dashboard }: DashboardCardProps) => {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = dashboard.excelFileName || 'dashboard_data.xlsx';
+            link.download = dashboard.excelFileName || 'report.xlsx';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -43,7 +46,6 @@ const DashboardCard = ({ dashboard }: DashboardCardProps) => {
             toast.success('Download started');
         } catch (error) {
             console.error('Download failed:', error);
-            // Fallback to direct link if fetch fails (CORS issue)
             window.open(dashboard.excelFile, '_blank');
         } finally {
             setIsDownloading(false);
@@ -51,13 +53,11 @@ const DashboardCard = ({ dashboard }: DashboardCardProps) => {
     };
 
     const handleDelete = async () => {
-        if (!confirm('Are you sure you want to delete this entry?')) return;
+        if (!confirm('Are you sure you want to delete this?')) return;
         try {
             const res = await fetch(`/api/dashboards/${dashboard._id}`, { method: 'DELETE' });
             if (res.ok) {
-                toast.success('Deleted successfully');
-                router.refresh();
-                // We might need a manual page refresh if refresh() doesn't trigger a re-fetch in our setup
+                toast.success('Deleted');
                 window.location.reload();
             }
         } catch (err) {
@@ -65,126 +65,132 @@ const DashboardCard = ({ dashboard }: DashboardCardProps) => {
         }
     };
 
+    const formattedDate = dashboard.createdAt
+        ? new Date(dashboard.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'Recent';
+
     return (
         <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -5 }}
-            className="flex flex-col bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-premium transition-all duration-300"
+            layout
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="group flex flex-col bg-card rounded-2xl border border-border/50 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300"
         >
-            {/* Image Previews */}
-            <div className="grid grid-cols-2 gap-1 p-1 h-52">
-                {dashboard.imageOne ? (
+            {/* Visual Header */}
+            <div className="relative h-48 overflow-hidden bg-muted">
+                <div className="absolute inset-0 grid grid-cols-2 gap-px bg-border/20">
                     <div
-                        className="relative overflow-hidden cursor-zoom-in group/img h-full rounded-tl-xl"
-                        onClick={() => openImage(dashboard.imageOne!)}
+                        className="relative h-full cursor-zoom-in group/img overflow-hidden"
+                        onClick={() => dashboard.imageOne && openImage(dashboard.imageOne)}
                     >
-                        <img
-                            src={dashboard.imageOne}
-                            alt="Preview 1"
-                            className="w-full h-full object-cover transition-transform duration-700 group-hover/img:scale-105"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                            <Maximize2 className="text-white w-6 h-6" />
+                        {dashboard.imageOne ? (
+                            <img
+                                src={dashboard.imageOne}
+                                alt="Metric View"
+                                className="w-full h-full object-cover transition-transform duration-700 group-hover/img:scale-110"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-secondary/30 text-[9px] text-muted-foreground uppercase tracking-widest font-black">No Image</div>
+                        )}
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                            <Maximize2 className="text-white w-5 h-5" />
                         </div>
                     </div>
-                ) : (
-                    <div className="bg-muted flex items-center justify-center text-muted-foreground text-xs rounded-tl-xl italic">No Preview</div>
-                )}
+                    <div
+                        className="relative h-full cursor-zoom-in group/img overflow-hidden"
+                        onClick={() => dashboard.imageTwo && openImage(dashboard.imageTwo)}
+                    >
+                        {dashboard.imageTwo ? (
+                            <img
+                                src={dashboard.imageTwo}
+                                alt="Support View"
+                                className="w-full h-full object-cover transition-transform duration-700 group-hover/img:scale-110"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-secondary/30 text-[9px] text-muted-foreground uppercase tracking-widest font-black">No Image</div>
+                        )}
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                            <Maximize2 className="text-white w-5 h-5" />
+                        </div>
+                    </div>
+                </div>
 
-                {dashboard.imageTwo ? (
-                    <div
-                        className="relative overflow-hidden cursor-zoom-in group/img h-full rounded-tr-xl"
-                        onClick={() => openImage(dashboard.imageTwo!)}
-                    >
-                        <img
-                            src={dashboard.imageTwo}
-                            alt="Preview 2"
-                            className="w-full h-full object-cover transition-transform duration-700 group-hover/img:scale-105"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                            <Maximize2 className="text-white w-6 h-6" />
-                        </div>
-                    </div>
-                ) : (
-                    <div className="bg-muted flex items-center justify-center text-muted-foreground text-xs rounded-tr-xl italic">No Preview</div>
-                )}
+                {/* Date Tag */}
+                <div className="absolute top-3 left-3 inline-flex items-center px-2 py-1 rounded-lg bg-background/80 backdrop-blur-md border border-border/50 text-[9px] font-black uppercase tracking-widest text-primary shadow-sm">
+                    <Calendar className="w-2.5 h-2.5 mr-1" />
+                    {formattedDate}
+                </div>
+
+                {/* Delete Button */}
+                <button
+                    onClick={handleDelete}
+                    className="absolute top-3 right-3 p-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-lg"
+                >
+                    <Trash2 size={14} />
+                </button>
             </div>
 
-            {/* Content */}
-            <div className="p-6 flex flex-col flex-1">
-                <div className="flex justify-between items-start gap-4 mb-3">
-                    <h3 className="font-black text-2xl text-foreground tracking-tight flex-1">
-                        {dashboard.title || 'Untitled Dashboard'}
-                    </h3>
-                    <div className="flex items-center gap-1 shrink-0">
-                        <motion.button
-                            whileHover={{ scale: 1.1, rotate: 5, backgroundColor: '#ef4444', color: '#ffffff' }}
-                            whileTap={{ scale: 0.9, rotate: -5 }}
-                            onClick={handleDelete}
-                            className="p-2 rounded-lg text-muted-foreground hover:text-white transition-all cursor-pointer"
-                            title="Delete"
-                        >
-                            <Trash2 size={20} />
-                        </motion.button>
-                    </div>
-                </div>
+            {/* Detailed Content */}
+            <div className="p-5 flex flex-col flex-1">
+                <h3 className="font-black text-lg text-foreground tracking-tight leading-snug mb-3 group-hover:text-primary transition-colors line-clamp-1">
+                    {dashboard.title || 'Untitled'}
+                </h3>
 
-
-                <p className="text-sm text-muted-foreground line-clamp-3 mb-6 flex-1">
-                    {dashboard.description || 'No description available for this dashboard entry.'}
+                <p className="text-xs text-muted-foreground line-clamp-2 mb-6 flex-1 leading-relaxed font-medium">
+                    {dashboard.description || 'No description provided.'}
                 </p>
 
-                {/* Dashboard Meta */}
-                <div className="pt-4 border-t border-border mt-auto">
+                <div className="space-y-3">
                     {dashboard.excelFile ? (
-                        <div className="space-y-3">
-                            <div className="flex items-center gap-2 p-3 bg-secondary/50 rounded-xl border border-border/50">
-                                <FileSpreadsheet className="w-5 h-5 text-green-600 dark:text-green-500" />
-                                <span className="text-xs font-medium text-foreground truncate flex-1">
-                                    {dashboard.excelFileName || 'spreadsheet_data.xlsx'}
+                        <div className="flex items-center gap-2.5 p-3 bg-primary/5 rounded-xl border border-primary/10">
+                            <div className="p-2 bg-green-500/10 rounded-lg">
+                                <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                            </div>
+                            <div className="flex flex-col min-w-0 flex-1">
+                                <span className="text-[10px] font-bold text-foreground truncate">
+                                    {dashboard.excelFileName || 'data.xlsx'}
                                 </span>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={handleEdit}
-                                    className="flex items-center justify-center gap-2 py-2.5 px-4 bg-background border border-border hover:bg-secondary text-foreground rounded-xl text-sm font-semibold transition-all shadow-sm group"
-                                >
-                                    <Edit size={16} className="group-hover:rotate-12 transition-transform" />
-                                    <span>Edit</span>
-                                </button>
-                                <button
-                                    onClick={handleDownload}
-                                    disabled={isDownloading}
-                                    className="flex items-center justify-center gap-2 py-2.5 px-4 bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-sm font-semibold transition-all shadow-sm disabled:opacity-50"
-                                >
-                                    {isDownloading ? (
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    ) : (
-                                        <Download size={16} />
-                                    )}
-                                    <span>Download</span>
-                                </button>
-                            </div>
+                            <button
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                                className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-all cursor-pointer"
+                            >
+                                <Download size={14} className={cn(isDownloading && "animate-bounce")} />
+                            </button>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center py-3 bg-muted/30 rounded-xl text-xs text-muted-foreground italic border border-dashed border-border">
-                            No associated data file
+                        <div className="flex items-center justify-center py-3 bg-muted/20 rounded-xl border border-dashed border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground italic">
+                            No File
                         </div>
                     )}
-                </div>
 
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleEdit}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-foreground text-background hover:bg-foreground/90 transition-all rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg cursor-pointer"
+                        >
+                            <Edit size={12} />
+                            Modify
+                        </button>
+                        <button
+                            onClick={handleEdit}
+                            className="p-2.5 bg-secondary text-foreground hover:bg-secondary/80 transition-all rounded-xl cursor-pointer"
+                        >
+                            <ChevronRight size={14} />
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <FullScreenImageViewer
                 isOpen={viewerOpen}
                 onClose={() => setViewerOpen(false)}
                 imageSrc={selectedImage}
-                alt={dashboard.title || 'Dashboard Preview'}
+                alt={dashboard.title || 'Preview'}
             />
         </motion.div>
     );
 };
 
 export default DashboardCard;
-
