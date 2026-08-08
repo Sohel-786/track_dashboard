@@ -20,6 +20,12 @@ const UserSchema = new Schema(
       required: true,
     },
     isActive: { type: Boolean, default: true, required: true },
+    /** Prayer-school preference for Asr window (hanafi | shafi | maliki | hanbali). */
+    namazMadhab: {
+      type: String,
+      enum: ["hanafi", "shafi", "maliki", "hanbali"],
+      default: "hanafi",
+    },
   },
   { timestamps: true }
 );

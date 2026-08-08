@@ -1,6 +1,7 @@
 import {
   eachDayIso,
   format,
+  getTrackingStartDate,
   startOfMonth,
   startOfYear,
   subDays,
@@ -200,9 +201,19 @@ export function computeKpis(
   rangeFrom: string,
   rangeTo: string
 ): AnalyticsKpis {
-  const weekFrom = format(subDays(new Date(`${today}T00:00:00`), 6), "yyyy-MM-dd");
-  const monthFrom = format(startOfMonth(new Date(`${today}T00:00:00`)), "yyyy-MM-dd");
-  const yearFrom = format(startOfYear(new Date(`${today}T00:00:00`)), "yyyy-MM-dd");
+  const trackingStart = getTrackingStartDate();
+  const clampFrom = (from: string) =>
+    from < trackingStart ? trackingStart : from;
+
+  const weekFrom = clampFrom(
+    format(subDays(new Date(`${today}T00:00:00`), 6), "yyyy-MM-dd")
+  );
+  const monthFrom = clampFrom(
+    format(startOfMonth(new Date(`${today}T00:00:00`)), "yyyy-MM-dd")
+  );
+  const yearFrom = clampFrom(
+    format(startOfYear(new Date(`${today}T00:00:00`)), "yyyy-MM-dd")
+  );
 
   const sumInRange = (from: string, to: string) =>
     allUserEntries

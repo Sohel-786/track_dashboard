@@ -10,6 +10,7 @@
     "seed": "tsx --tsconfig tsconfig.json scripts/seed-demo.ts"
   },
   "dependencies": {
+    "adhan": "^4.4.4",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

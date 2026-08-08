@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
   ListChecks,
+  MoonStar,
   Tags,
   Users,
 } from "lucide-react";
@@ -24,6 +25,7 @@ export function buildAppNavSections(user: AuthUser | null): AppNavSection[] {
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/entries", label: "Entries", icon: ListChecks },
+      { href: "/namaz", label: "Namaz", icon: MoonStar },
     ],
   };
 

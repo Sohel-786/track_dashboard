@@ -107,3 +107,145 @@ export type ApiResponse<T> = {
   data?: T;
   message?: string;
 };
+
+export type NamazPrayerKey =
+  | "fajar"
+  | "zohar"
+  | "asar"
+  | "magrib"
+  | "isha";
+
+export type NamazPrayerStatus =
+  | "prayed"
+  | "kaza"
+  | "missed"
+  | "pending"
+  | "upcoming"
+  | "open"
+  | "unavailable";
+
+export type NamazPrayerDay = {
+  prayer: NamazPrayerKey;
+  label: string;
+  arabic: string;
+  windowHint: string;
+  prayed: boolean;
+  isKaza: boolean;
+  sunnah: boolean;
+  tasbeeh: boolean;
+  prayedAt: string | null;
+  kazaAt: string | null;
+  status: NamazPrayerStatus;
+};
+
+export type NamazPrayerScheduleSlot = {
+  prayer: NamazPrayerKey;
+  label: string;
+  arabic: string;
+  startsAt: string;
+  endsAt: string;
+  startsAtLabel: string;
+  endsAtLabel: string;
+  phase: "upcoming" | "open" | "ended";
+  canMarkOnTime: boolean;
+  canMarkKaza: boolean;
+};
+
+export type NamazScheduleSnapshot = {
+  location: {
+    city: string;
+    region: string;
+    country: string;
+    latitude: number;
+    longitude: number;
+    timeZone: string;
+    method: string;
+    madhab: string;
+    madhabId: "hanafi" | "shafi" | "maliki" | "hanbali";
+    library: string;
+    libraryUrl: string;
+  };
+  serverNow: string;
+  today: string;
+  schedule: NamazPrayerScheduleSlot[];
+};
+
+export type NamazDayStatus = {
+  date: string;
+  isToday: boolean;
+  isPast: boolean;
+  trackingStart?: string;
+  beforeTrackingStart?: boolean;
+  madhabId?: "hanafi" | "shafi" | "maliki" | "hanbali";
+  prayers: NamazPrayerDay[];
+  prayedCount: number;
+  kazaCount: number;
+  missedCount: number;
+  pendingCount: number;
+  schedule?: NamazScheduleSnapshot;
+};
+
+export type NamazMissedItem = {
+  date: string;
+  dayLabel: string;
+  prayer: NamazPrayerKey;
+  label: string;
+};
+
+export type NamazKazaQueueResponse = {
+  trackingStart: string;
+  madhabId?: "hanafi" | "shafi" | "maliki" | "hanbali";
+  schedule?: NamazScheduleSnapshot;
+  outstanding: NamazMissedItem[];
+  count: number;
+  completed?: {
+    date: string;
+    prayer: NamazPrayerKey;
+    isKaza: boolean;
+  };
+};
+
+export type NamazAnalyticsResponse = {
+  appliedRange: {
+    quick: string;
+    from: string;
+    to: string;
+  };
+  trackingStart?: string;
+  kpis: {
+    prayedInRange: number;
+    kazaInRange: number;
+    completedInRange: number;
+    missedInRange: number;
+    completionPct: number;
+    streak: number;
+    sunnahInRange: number;
+    tasbeehInRange: number;
+    finalizedExpected: number;
+  };
+  byPrayer: Array<{
+    prayer: NamazPrayerKey;
+    label: string;
+    prayed: number;
+    kaza: number;
+    sunnah: number;
+    tasbeeh: number;
+    missed: number;
+  }>;
+  daily: Array<{
+    date: string;
+    dayLabel: string;
+    prayed: number;
+    kaza: number;
+    missed: number;
+    pending: number;
+  }>;
+  missed: NamazMissedItem[];
+  kazaLog: Array<{
+    date: string;
+    dayLabel: string;
+    prayer: NamazPrayerKey;
+    label: string;
+    kazaAt: string | null;
+  }>;
+};
