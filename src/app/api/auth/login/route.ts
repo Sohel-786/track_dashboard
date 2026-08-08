@@ -30,13 +30,16 @@ function loginFailureMessage(error: unknown): { message: string; status: number 
 
   if (
     error instanceof Error &&
-    /ECONNREFUSED|ServerSelectionError|MongoNetworkError|ENOTFOUND/i.test(
+    /querySrv|ECONNREFUSED|ServerSelectionError|MongoNetworkError|ENOTFOUND/i.test(
       error.message
     )
   ) {
+    const dnsHint = /querySrv/i.test(error.message)
+      ? " DNS/SRV lookup failed for mongodb+srv (common with local DNS on Windows)."
+      : "";
     return {
       message:
-        "Database unavailable. For production, set MONGODB_URI to a reachable MongoDB Atlas cluster (not localhost).",
+        `Database unavailable.${dnsHint} Check MONGODB_URI, Atlas network access (IP allowlist), and your internet connection.`,
       status: 503,
     };
   }
