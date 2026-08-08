@@ -21,13 +21,25 @@ type TodayPayload = NamazDayStatus & {
   madhabId?: NamazMadhabId;
 };
 
+/** Stable React/list id when overnight Isha and today's Isha both appear. */
+function prayerRowKey(
+  prayer: Pick<NamazPrayerDay, "prayer" | "logDate" | "isOvernightCarryover">,
+  fallbackDate: string
+) {
+  return [
+    prayer.logDate ?? fallbackDate,
+    prayer.prayer,
+    prayer.isOvernightCarryover ? "overnight" : "today",
+  ].join(":");
+}
+
 /** Today-only on-time checklist with Ahmedabad prayer windows (server clock). */
 export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
   const [day, setDay] = useState<TodayPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [kazaExtras, setKazaExtras] = useState<
-    Record<string, { sunnah: boolean; tasbeeh: boolean }>
+    Record<string, { sunnah: boolean; tasbeeh: boolean; zamaat: boolean }>
   >({});
 
   const load = useCallback(async () => {
@@ -54,6 +66,13 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
     return map;
   }, [day]);
 
+  function slotForPrayer(prayer: NamazPrayerDay): NamazPrayerScheduleSlot | undefined {
+    if (prayer.isOvernightCarryover && day?.schedule?.overnightIsha) {
+      return day.schedule.overnightIsha.slot;
+    }
+    return slotByPrayer.get(prayer.prayer);
+  }
+
   const madhabId =
     day?.madhabId ?? day?.schedule?.location?.madhabId ?? "hanafi";
 
@@ -61,7 +80,7 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
     prayer: NamazPrayerDay,
     patch: Partial<NamazPrayerDay>
   ) {
-    const key = prayer.prayer;
+    const key = prayerRowKey(prayer, day?.date ?? "today");
     setBusyKey(key);
     try {
       const prayed = patch.prayed ?? prayer.prayed;
@@ -72,6 +91,8 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
           prayed,
           sunnah: prayed ? (patch.sunnah ?? prayer.sunnah) : false,
           tasbeeh: prayed ? (patch.tasbeeh ?? prayer.tasbeeh) : false,
+          zamaat: prayed ? (patch.zamaat ?? prayer.zamaat) : false,
+          date: prayer.logDate ?? day?.date,
         }),
       });
       setDay(next);
@@ -85,20 +106,23 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
 
   async function markKaza(prayer: NamazPrayerDay) {
     if (!day) return;
-    const key = `kaza:${prayer.prayer}`;
+    const rowKey = prayerRowKey(prayer, day.date);
+    const key = `kaza:${rowKey}`;
     setBusyKey(key);
-    const extras = kazaExtras[prayer.prayer] ?? {
+    const extras = kazaExtras[rowKey] ?? {
       sunnah: false,
       tasbeeh: false,
+      zamaat: false,
     };
     try {
       await api("/api/namaz/kaza", {
         method: "PUT",
         body: JSON.stringify({
-          date: day.date,
+          date: prayer.logDate ?? day.date,
           prayer: prayer.prayer,
           sunnah: extras.sunnah,
           tasbeeh: extras.tasbeeh,
+          zamaat: extras.zamaat,
         }),
       });
       const next = await api<TodayPayload>("/api/namaz");
@@ -132,11 +156,11 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
             : "Loading…"}
         </h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Mark Fard only while the prayer window is open. After end time, use{" "}
+          Mark Fard only while the prayer window is open. Isha stays on time
+          until Fajar — even after midnight. After a window ends, use{" "}
           <span className="font-semibold text-foreground">Mark Kaza</span> on
           the card. Past-day make-ups live under the{" "}
           <span className="font-semibold text-foreground">Kaza</span> tab.
-          Window rules use your saved madhab (apply from Namaz times above).
         </p>
       </div>
 
@@ -149,8 +173,15 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
         <>
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
             <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-emerald-800 dark:text-emerald-200">
-              On time {day.prayedCount}/5
+              On time{" "}
+              {day.prayers.filter((p) => p.status === "prayed").length}/
+              {day.prayers.length}
             </span>
+            {day.schedule?.overnightIsha ? (
+              <span className="rounded-full bg-indigo-500/15 px-3 py-1 text-indigo-900 dark:text-indigo-200">
+                Overnight Isha until Fajar
+              </span>
+            ) : null}
             {day.kazaCount > 0 ? (
               <span className="rounded-full bg-amber-500/15 px-3 py-1 text-amber-900 dark:text-amber-200">
                 Kaza today {day.kazaCount}
@@ -169,48 +200,58 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {day.prayers.map((prayer) => (
-              <PrayerCard
-                key={prayer.prayer}
-                prayer={prayer}
-                slot={slotByPrayer.get(prayer.prayer)}
-                busy={
-                  busyKey === prayer.prayer ||
-                  busyKey === `kaza:${prayer.prayer}`
-                }
-                kazaSunnah={kazaExtras[prayer.prayer]?.sunnah ?? false}
-                kazaTasbeeh={kazaExtras[prayer.prayer]?.tasbeeh ?? false}
-                onKazaExtraChange={(patch) =>
-                  setKazaExtras((prev) => ({
-                    ...prev,
-                    [prayer.prayer]: {
-                      sunnah:
-                        patch.sunnah ?? prev[prayer.prayer]?.sunnah ?? false,
-                      tasbeeh:
-                        patch.tasbeeh ?? prev[prayer.prayer]?.tasbeeh ?? false,
-                    },
-                  }))
-                }
-                onTogglePrayed={() =>
-                  void upsert(prayer, { prayed: !prayer.prayed })
-                }
-                onToggleSunnah={() => {
-                  if (!prayer.prayed) {
-                    void upsert(prayer, { prayed: true, sunnah: true });
-                    return;
+            {day.prayers.map((prayer) => {
+              const cardKey = prayerRowKey(prayer, day.date);
+              const busyKeyMatch =
+                busyKey === cardKey || busyKey === `kaza:${cardKey}`;
+              return (
+                <PrayerCard
+                  key={cardKey}
+                  prayer={prayer}
+                  slot={slotForPrayer(prayer)}
+                  busy={busyKeyMatch}
+                  kazaSunnah={kazaExtras[cardKey]?.sunnah ?? false}
+                  kazaTasbeeh={kazaExtras[cardKey]?.tasbeeh ?? false}
+                  kazaZamaat={kazaExtras[cardKey]?.zamaat ?? false}
+                  onKazaExtraChange={(patch) =>
+                    setKazaExtras((prev) => ({
+                      ...prev,
+                      [cardKey]: {
+                        sunnah: patch.sunnah ?? prev[cardKey]?.sunnah ?? false,
+                        tasbeeh:
+                          patch.tasbeeh ?? prev[cardKey]?.tasbeeh ?? false,
+                        zamaat: patch.zamaat ?? prev[cardKey]?.zamaat ?? false,
+                      },
+                    }))
                   }
-                  void upsert(prayer, { sunnah: !prayer.sunnah });
-                }}
-                onToggleTasbeeh={() => {
-                  if (!prayer.prayed) {
-                    void upsert(prayer, { prayed: true, tasbeeh: true });
-                    return;
+                  onTogglePrayed={() =>
+                    void upsert(prayer, { prayed: !prayer.prayed })
                   }
-                  void upsert(prayer, { tasbeeh: !prayer.tasbeeh });
-                }}
-                onMarkKaza={() => void markKaza(prayer)}
-              />
-            ))}
+                  onToggleSunnah={() => {
+                    if (!prayer.prayed) {
+                      void upsert(prayer, { prayed: true, sunnah: true });
+                      return;
+                    }
+                    void upsert(prayer, { sunnah: !prayer.sunnah });
+                  }}
+                  onToggleTasbeeh={() => {
+                    if (!prayer.prayed) {
+                      void upsert(prayer, { prayed: true, tasbeeh: true });
+                      return;
+                    }
+                    void upsert(prayer, { tasbeeh: !prayer.tasbeeh });
+                  }}
+                  onToggleZamaat={() => {
+                    if (!prayer.prayed) {
+                      void upsert(prayer, { prayed: true, zamaat: true });
+                      return;
+                    }
+                    void upsert(prayer, { zamaat: !prayer.zamaat });
+                  }}
+                  onMarkKaza={() => void markKaza(prayer)}
+                />
+              );
+            })}
           </div>
         </>
       )}
@@ -224,10 +265,12 @@ function PrayerCard({
   busy,
   kazaSunnah,
   kazaTasbeeh,
+  kazaZamaat,
   onKazaExtraChange,
   onTogglePrayed,
   onToggleSunnah,
   onToggleTasbeeh,
+  onToggleZamaat,
   onMarkKaza,
 }: {
   prayer: NamazPrayerDay;
@@ -235,13 +278,16 @@ function PrayerCard({
   busy: boolean;
   kazaSunnah: boolean;
   kazaTasbeeh: boolean;
+  kazaZamaat: boolean;
   onKazaExtraChange: (patch: {
     sunnah?: boolean;
     tasbeeh?: boolean;
+    zamaat?: boolean;
   }) => void;
   onTogglePrayed: () => void;
   onToggleSunnah: () => void;
   onToggleTasbeeh: () => void;
+  onToggleZamaat: () => void;
   onMarkKaza: () => void;
 }) {
   const meta = NAMAZ_PRAYER_META[prayer.prayer as NamazPrayer];
@@ -263,7 +309,9 @@ function PrayerCard({
         open &&
           !onTime &&
           !kazaDone &&
-          "border-teal-300/70 dark:border-teal-800",
+          (prayer.isOvernightCarryover
+            ? "border-indigo-300/70 dark:border-indigo-800"
+            : "border-teal-300/70 dark:border-teal-800"),
         !onTime && !kazaDone && !missed && !open && "border-border"
       )}
     >
@@ -277,15 +325,24 @@ function PrayerCard({
                 meta.accentSoft
               )}
             >
-              {slot?.phase === "open"
-                ? "Window open"
-                : slot?.phase === "ended"
-                  ? "Window ended"
-                  : "Upcoming"}
+              {prayer.isOvernightCarryover
+                ? "Overnight · still on time"
+                : slot?.phase === "open"
+                  ? "Window open"
+                  : slot?.phase === "ended"
+                    ? "Window ended"
+                    : "Upcoming"}
             </p>
             <h3 className="mt-2 text-lg font-bold tracking-tight">
               {prayer.label}
             </h3>
+            {prayer.isOvernightCarryover && prayer.logDate ? (
+              <p className="mt-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                From{" "}
+                {format(parseISO(`${prayer.logDate}T00:00:00`), "EEE d MMM")}{" "}
+                · until Fajar
+              </p>
+            ) : null}
             <p className="text-sm text-muted-foreground" dir="rtl">
               {prayer.arabic}
             </p>
@@ -335,7 +392,7 @@ function PrayerCard({
             <p className="text-[11px] font-semibold text-amber-900 dark:text-amber-100">
               Window closed — pray as Kaza today
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <OptionalToggle
                 label="Sunnah"
                 active={kazaSunnah}
@@ -348,6 +405,12 @@ function PrayerCard({
                 disabled={busy}
                 onClick={() => onKazaExtraChange({ tasbeeh: !kazaTasbeeh })}
                 icon
+              />
+              <OptionalToggle
+                label="With Zamaat"
+                active={kazaZamaat}
+                disabled={busy}
+                onClick={() => onKazaExtraChange({ zamaat: !kazaZamaat })}
               />
             </div>
             <button
@@ -408,7 +471,7 @@ function PrayerCard({
               </span>
             </button>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <OptionalToggle
                 label="Sunnah"
                 active={prayer.sunnah}
@@ -421,6 +484,12 @@ function PrayerCard({
                 disabled={busy || (!canToggle && !kazaDone) || kazaDone}
                 onClick={onToggleTasbeeh}
                 icon
+              />
+              <OptionalToggle
+                label="With Zamaat"
+                active={Boolean(prayer.zamaat)}
+                disabled={busy || (!canToggle && !kazaDone) || kazaDone}
+                onClick={onToggleZamaat}
               />
             </div>
           </>

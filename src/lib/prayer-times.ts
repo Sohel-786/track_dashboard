@@ -64,12 +64,27 @@ export type PrayerScheduleSlot = {
   canMarkKaza: boolean;
 };
 
+/**
+ * After midnight until Fajr, yesterday's Isha window is still open for on-time
+ * marking. Surfaced separately so today's timetable can keep tonight's Isha.
+ */
+export type OvernightIshaCarryover = {
+  /** Calendar day the Isha belongs to (yesterday). */
+  date: string;
+  slot: PrayerScheduleSlot;
+};
+
 export type NamazScheduleSnapshot = {
   location: NamazLocationSnapshot;
   /** Authoritative clock from the application server (not the user's device). */
   serverNow: string;
   today: string;
   schedule: PrayerScheduleSlot[];
+  /**
+   * Present only between IST midnight and Fajr when yesterday's Isha has not
+   * yet ended. Null when N/A.
+   */
+  overnightIsha: OvernightIshaCarryover | null;
 };
 
 function partsInTimeZone(date: Date, timeZone: string) {
@@ -97,10 +112,25 @@ function partsInTimeZone(date: Date, timeZone: string) {
   };
 }
 
+/** Shift a YYYY-MM-DD calendar day by `deltaDays` (UTC noon anchor). */
+export function shiftIsoDay(isoDay: string, deltaDays: number): string {
+  const [y, m, d] = isoDay.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + deltaDays, 12, 0, 0));
+  const yy = next.getUTCFullYear();
+  const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(next.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 /** Calendar YYYY-MM-DD in Ahmedabad (IST) — never from the client device. */
 export function getNamazTodayIso(now = new Date()): string {
   const { year, month, day } = partsInTimeZone(now, NAMAZ_LOCATION_BASE.timeZone);
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Previous Ahmedabad calendar day relative to `now`. */
+export function getNamazYesterdayIso(now = new Date()): string {
+  return shiftIsoDay(getNamazTodayIso(now), -1);
 }
 
 export function formatInNamazTz(
@@ -154,14 +184,7 @@ export function computePrayerWindows(
   const dayDate = adhanDateForIsoDay(isoDay);
   const times = new PrayerTimes(coords, dayDate, params);
 
-  const nextIso = (() => {
-    const [y, m, d] = isoDay.split("-").map(Number);
-    const next = new Date(Date.UTC(y, m - 1, d + 1, 12, 0, 0));
-    const yy = next.getUTCFullYear();
-    const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(next.getUTCDate()).padStart(2, "0");
-    return `${yy}-${mm}-${dd}`;
-  })();
+  const nextIso = shiftIsoDay(isoDay, 1);
   const nextTimes = new PrayerTimes(
     coords,
     adhanDateForIsoDay(nextIso),
@@ -190,6 +213,71 @@ function phaseFor(
   return "open";
 }
 
+function slotFromWindow(
+  prayer: NamazPrayer,
+  start: Date,
+  end: Date,
+  now: Date
+): PrayerScheduleSlot {
+  const phase = phaseFor(now, start, end);
+  const meta = NAMAZ_PRAYER_META[prayer];
+  return {
+    prayer,
+    label: meta.label,
+    arabic: meta.arabic,
+    startsAt: start.toISOString(),
+    endsAt: end.toISOString(),
+    startsAtLabel: formatInNamazTz(start),
+    endsAtLabel: formatInNamazTz(end),
+    phase,
+    canMarkOnTime: phase === "open",
+    canMarkKaza: phase === "ended",
+  };
+}
+
+/**
+ * Yesterday's Isha after IST midnight, while its window is still open until
+ * today's Fajr. Returns null once Fajr starts or if today's Isha is already open.
+ */
+export function getOvernightIshaCarryover(
+  now = new Date(),
+  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
+): OvernightIshaCarryover | null {
+  const today = getNamazTodayIso(now);
+  const yesterday = getNamazYesterdayIso(now);
+
+  // Tonight's Isha already started — overnight carryover no longer applies.
+  if (isPrayerWindowOpen("isha", today, now, madhabId)) return null;
+
+  const window = getPrayerWindow("isha", yesterday, now, madhabId);
+  if (window.phase !== "open") return null;
+
+  return {
+    date: yesterday,
+    slot: slotFromWindow("isha", window.start, window.end, now),
+  };
+}
+
+/**
+ * Calendar date that currently owns an open on-time window for `prayer`.
+ * For Isha after midnight this is yesterday until Fajr.
+ */
+export function resolveOpenOnTimeDate(
+  prayer: NamazPrayer,
+  now = new Date(),
+  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
+): string | null {
+  const today = getNamazTodayIso(now);
+  if (isPrayerWindowOpen(prayer, today, now, madhabId)) return today;
+
+  if (prayer === "isha") {
+    const overnight = getOvernightIshaCarryover(now, madhabId);
+    if (overnight) return overnight.date;
+  }
+
+  return null;
+}
+
 export function getNamazScheduleSnapshot(
   now = new Date(),
   madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
@@ -199,20 +287,7 @@ export function getNamazScheduleSnapshot(
 
   const schedule: PrayerScheduleSlot[] = NAMAZ_PRAYERS.map((prayer) => {
     const { start, end } = windows[prayer];
-    const phase = phaseFor(now, start, end);
-    const meta = NAMAZ_PRAYER_META[prayer];
-    return {
-      prayer,
-      label: meta.label,
-      arabic: meta.arabic,
-      startsAt: start.toISOString(),
-      endsAt: end.toISOString(),
-      startsAtLabel: formatInNamazTz(start),
-      endsAtLabel: formatInNamazTz(end),
-      phase,
-      canMarkOnTime: phase === "open",
-      canMarkKaza: phase === "ended",
-    };
+    return slotFromWindow(prayer, start, end, now);
   });
 
   return {
@@ -220,6 +295,7 @@ export function getNamazScheduleSnapshot(
     serverNow: now.toISOString(),
     today,
     schedule,
+    overnightIsha: getOvernightIshaCarryover(now, madhabId),
   };
 }
 

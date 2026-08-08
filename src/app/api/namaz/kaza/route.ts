@@ -19,6 +19,7 @@ const kazaSchema = z.object({
   prayer: z.enum(NAMAZ_PRAYERS),
   sunnah: z.boolean().optional(),
   tasbeeh: z.boolean().optional(),
+  zamaat: z.boolean().optional(),
 });
 
 function mapLogs(
@@ -28,6 +29,7 @@ function mapLogs(
     prayed: boolean;
     sunnah: boolean;
     tasbeeh: boolean;
+    zamaat?: boolean;
     isKaza?: boolean;
     prayedAt?: Date | null;
     kazaAt?: Date | null;
@@ -39,6 +41,7 @@ function mapLogs(
     prayed: l.prayed,
     sunnah: l.sunnah,
     tasbeeh: l.tasbeeh,
+    zamaat: Boolean(l.zamaat),
     isKaza: Boolean(l.isKaza),
     prayedAt: l.prayedAt,
     kazaAt: l.kazaAt,
@@ -150,6 +153,7 @@ export async function PUT(request: NextRequest) {
           isKaza: true,
           sunnah: Boolean(parsed.data.sunnah),
           tasbeeh: Boolean(parsed.data.tasbeeh),
+          zamaat: Boolean(parsed.data.zamaat),
           prayedAt: existing?.prayedAt ?? now,
           kazaAt: now,
         },

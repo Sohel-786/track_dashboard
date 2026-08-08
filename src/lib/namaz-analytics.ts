@@ -21,6 +21,7 @@ export type StoredNamazLog = {
   prayed: boolean;
   sunnah: boolean;
   tasbeeh: boolean;
+  zamaat?: boolean;
   isKaza?: boolean;
   prayedAt?: Date | string | null;
   kazaAt?: Date | string | null;
@@ -47,9 +48,12 @@ function statusFor(
   if (date < trackingStart) return "unavailable";
   if (prayed && isKaza) return "kaza";
   if (prayed) return "prayed";
-  if (date < today || (date === today && windowEnded)) return "missed";
-  if (date === today && windowOpen) return "open";
+  // Window physics (not calendar midnight) decides missed vs open.
+  if (windowEnded) return "missed";
+  if (windowOpen) return "open";
   if (date === today) return "upcoming";
+  if (date > today) return "pending";
+  // Past calendar day whose window somehow has not ended (overnight Isha).
   return "pending";
 }
 
@@ -72,8 +76,7 @@ export function buildDayStatus(
     const isKaza = Boolean(row?.isKaza);
     const meta = NAMAZ_PRAYER_META[prayer];
     const ended = hasPrayerWindowEnded(prayer, date, now, madhabId);
-    const open =
-      date === today && isPrayerWindowOpen(prayer, date, now, madhabId);
+    const open = isPrayerWindowOpen(prayer, date, now, madhabId);
     const status = statusFor(
       date,
       prayed,
@@ -93,6 +96,7 @@ export function buildDayStatus(
       isKaza: status === "kaza",
       sunnah: completed ? Boolean(row?.sunnah) : false,
       tasbeeh: completed ? Boolean(row?.tasbeeh) : false,
+      zamaat: completed ? Boolean(row?.zamaat) : false,
       prayedAt:
         completed && row?.prayedAt
           ? new Date(row.prayedAt).toISOString()
@@ -135,8 +139,8 @@ export type KazaMissedItem = {
 
 /**
  * Outstanding Kaza queue.
- * - Past days: any prayer not completed
- * - Today: only prayers whose end time has passed (server/adhan clock)
+ * A prayer is outstanding only after its on-time window has ended
+ * (Isha: next Fajr — not calendar midnight).
  */
 export function collectMissed(
   from: string,
@@ -160,12 +164,9 @@ export function collectMissed(
   for (const date of eachDayIso(rangeStart, rangeEnd)) {
     for (const prayer of NAMAZ_PRAYERS) {
       if (completedSet.has(`${date}:${prayer}`)) continue;
-
-      if (date === today) {
-        if (!hasPrayerWindowEnded(prayer, date, now, madhabId)) continue;
-      } else if (date > today) {
-        continue;
-      }
+      if (date > today) continue;
+      // Past calendar days still wait for window end (overnight Isha until Fajr).
+      if (!hasPrayerWindowEnded(prayer, date, now, madhabId)) continue;
 
       missed.push({
         date,
@@ -236,6 +237,7 @@ export function buildNamazAnalytics(input: {
       kaza: rows.filter((l) => l.isKaza).length,
       sunnah: rows.filter((l) => l.sunnah).length,
       tasbeeh: rows.filter((l) => l.tasbeeh).length,
+      zamaat: rows.filter((l) => l.zamaat).length,
       missed: missed.filter((m) => m.prayer === prayer).length,
     };
   });
@@ -314,6 +316,9 @@ export function buildNamazAnalytics(input: {
       ).length,
       tasbeehInRange: input.logs.filter(
         (l) => l.prayed && l.tasbeeh && inRange(l.date)
+      ).length,
+      zamaatInRange: input.logs.filter(
+        (l) => l.prayed && l.zamaat && inRange(l.date)
       ).length,
       finalizedExpected,
     },

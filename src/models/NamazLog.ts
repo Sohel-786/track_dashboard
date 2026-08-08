@@ -49,6 +49,12 @@ const NamazLogSchema = new Schema(
       required: true,
       default: false,
     },
+    /** Optional: prayed with Zamaat (congregation) */
+    zamaat: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
     prayedAt: {
       type: Date,
       default: null,

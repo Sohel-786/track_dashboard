@@ -38,8 +38,25 @@ type NextFocus =
 
 function resolveFocus(
   schedule: NamazPrayerScheduleSlot[],
-  nowMs: number
+  nowMs: number,
+  overnightIsha: NamazScheduleSnapshot["overnightIsha"]
 ): NextFocus | null {
+  if (overnightIsha) {
+    const start = new Date(overnightIsha.slot.startsAt).getTime();
+    const end = new Date(overnightIsha.slot.endsAt).getTime();
+    if (nowMs >= start && nowMs <= end) {
+      return {
+        kind: "open",
+        slot: {
+          ...overnightIsha.slot,
+          label: "Isha",
+        },
+        targetMs: end,
+        caption: `Overnight from ${overnightIsha.date} · ends at Fajar`,
+      };
+    }
+  }
+
   if (!schedule.length) return null;
 
   const withMs = schedule.map((s) => ({
@@ -177,7 +194,10 @@ export function NamazTimesPanel({
   }, [schedule?.serverNow, schedule?.location.timeZone]);
 
   const focus = useMemo(
-    () => (schedule ? resolveFocus(schedule.schedule, nowMs) : null),
+    () =>
+      schedule
+        ? resolveFocus(schedule.schedule, nowMs, schedule.overnightIsha)
+        : null,
     [schedule, nowMs]
   );
 
@@ -311,7 +331,11 @@ export function NamazTimesPanel({
                       : "bg-sky-500/15 text-sky-900 dark:text-sky-200"
                   )}
                 >
-                  {focus.kind === "open" ? "Praying now" : "Up next"}
+                  {focus.kind === "open"
+                    ? focus.caption.startsWith("Overnight")
+                      ? "Still on time"
+                      : "Praying now"
+                    : "Up next"}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {focus.caption}
@@ -369,7 +393,27 @@ export function NamazTimesPanel({
             Today’s timetable
           </p>
           <ul className="space-y-1.5">
-            {(schedule?.schedule ?? []).map((slot) => {
+            {(
+              [
+                ...(schedule?.overnightIsha
+                  ? [
+                      {
+                        key: `overnight-isha:${schedule.overnightIsha.date}`,
+                        kind: "overnight" as const,
+                        slot: schedule.overnightIsha.slot,
+                        date: schedule.overnightIsha.date,
+                      },
+                    ]
+                  : []),
+                ...(schedule?.schedule ?? []).map((slot) => ({
+                  key: `today:${schedule?.today ?? "day"}:${slot.prayer}`,
+                  kind: "today" as const,
+                  slot,
+                  date: schedule?.today ?? "",
+                })),
+              ] as const
+            ).map((row) => {
+              const { slot, kind, key: rowKey, date } = row;
               const meta = NAMAZ_PRAYER_META[slot.prayer as NamazPrayer];
               const start = new Date(slot.startsAt).getTime();
               const end = new Date(slot.endsAt).getTime();
@@ -379,27 +423,54 @@ export function NamazTimesPanel({
                   : nowMs > end
                     ? "ended"
                     : "open";
+              const overnightFocus =
+                kind === "overnight" &&
+                focus?.kind === "open" &&
+                focus.slot.prayer === "isha" &&
+                focus.slot.endsAt === slot.endsAt;
               const active =
-                focus?.kind !== "next-fajar" &&
-                focus?.slot.prayer === slot.prayer;
+                kind === "overnight"
+                  ? overnightFocus
+                  : focus?.kind !== "next-fajar" &&
+                    !(
+                      Boolean(schedule?.overnightIsha) &&
+                      focus?.kind === "open" &&
+                      focus.slot.prayer === "isha" &&
+                      focus.slot.endsAt ===
+                        schedule?.overnightIsha?.slot.endsAt
+                    ) &&
+                    focus?.slot.prayer === slot.prayer;
               return (
                 <li
-                  key={slot.prayer}
+                  key={rowKey}
                   className={cn(
                     "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm transition",
-                    active
-                      ? "border-teal-400/50 bg-teal-500/10"
-                      : "border-transparent bg-muted/30"
+                    kind === "overnight"
+                      ? overnightFocus
+                        ? "border-indigo-400/50 bg-indigo-500/10"
+                        : "border-indigo-400/30 bg-indigo-500/5"
+                      : active
+                        ? "border-teal-400/50 bg-teal-500/10"
+                        : "border-transparent bg-muted/30"
                   )}
                 >
                   <div className="min-w-0">
                     <p className="font-semibold">{slot.label}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {livePhase === "open"
-                        ? "Open"
-                        : livePhase === "ended"
-                          ? "Ended"
-                          : "Upcoming"}
+                    <p
+                      className={cn(
+                        "text-[10px]",
+                        kind === "overnight"
+                          ? "font-medium text-indigo-700 dark:text-indigo-300"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {kind === "overnight"
+                        ? `From ${date} · still open until Fajar`
+                        : livePhase === "open"
+                          ? "Open"
+                          : livePhase === "ended"
+                            ? "Ended"
+                            : "Upcoming"}
                     </p>
                   </div>
                   <div className="text-right tabular-nums">
@@ -411,7 +482,9 @@ export function NamazTimesPanel({
                   <span
                     className={cn(
                       "hidden h-8 w-1 shrink-0 rounded-full bg-gradient-to-b sm:block",
-                      meta.accent
+                      kind === "overnight"
+                        ? "from-indigo-500 to-violet-700"
+                        : meta.accent
                     )}
                   />
                 </li>

@@ -133,9 +133,17 @@ export type NamazPrayerDay = {
   isKaza: boolean;
   sunnah: boolean;
   tasbeeh: boolean;
+  zamaat: boolean;
   prayedAt: string | null;
   kazaAt: string | null;
   status: NamazPrayerStatus;
+  /**
+   * Calendar day this prayer log belongs to. Differs from checklist `day.date`
+   * for overnight Isha carryover (yesterday until Fajr).
+   */
+  logDate?: string;
+  /** True when this row is yesterday's Isha still open after midnight. */
+  isOvernightCarryover?: boolean;
 };
 
 export type NamazPrayerScheduleSlot = {
@@ -149,6 +157,11 @@ export type NamazPrayerScheduleSlot = {
   phase: "upcoming" | "open" | "ended";
   canMarkOnTime: boolean;
   canMarkKaza: boolean;
+};
+
+export type NamazOvernightIsha = {
+  date: string;
+  slot: NamazPrayerScheduleSlot;
 };
 
 export type NamazScheduleSnapshot = {
@@ -168,6 +181,8 @@ export type NamazScheduleSnapshot = {
   serverNow: string;
   today: string;
   schedule: NamazPrayerScheduleSlot[];
+  /** Yesterday's Isha still open until Fajr; null when N/A. */
+  overnightIsha: NamazOvernightIsha | null;
 };
 
 export type NamazDayStatus = {
@@ -221,6 +236,7 @@ export type NamazAnalyticsResponse = {
     streak: number;
     sunnahInRange: number;
     tasbeehInRange: number;
+    zamaatInRange: number;
     finalizedExpected: number;
   };
   byPrayer: Array<{
@@ -230,6 +246,7 @@ export type NamazAnalyticsResponse = {
     kaza: number;
     sunnah: number;
     tasbeeh: number;
+    zamaat: number;
     missed: number;
   }>;
   daily: Array<{

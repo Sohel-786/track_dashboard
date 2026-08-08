@@ -177,6 +177,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
       missedInRange: row.missed,
       sunnahInRange: row.sunnah,
       tasbeehInRange: row.tasbeeh,
+      zamaatInRange: row.zamaat,
       completionPct:
         expected > 0
           ? Math.round((completed / expected) * 1000) / 10
@@ -267,9 +268,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              Scopes KPIs, charts, and tables below.
-            </p>
+       
           </div>
           {hasActiveFilters ? (
             <ClearFiltersButton onClick={resetFilters} />
@@ -341,10 +340,12 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
               theme={KPI_THEMES.year}
             />
             <AnalyticsKpiCard
-              label="Sunnah / Tasbeeh"
-              sub={`${filteredKpis.sunnahInRange} sunnah · ${filteredKpis.tasbeehInRange} tasbeeh`}
+              label="Extras"
+              sub={`${filteredKpis.sunnahInRange} sunnah · ${filteredKpis.tasbeehInRange} tasbeeh · ${filteredKpis.zamaatInRange} zamaat`}
               value={
-                filteredKpis.sunnahInRange + filteredKpis.tasbeehInRange
+                filteredKpis.sunnahInRange +
+                filteredKpis.tasbeehInRange +
+                filteredKpis.zamaatInRange
               }
               icon={Sparkles}
               theme={KPI_THEMES.range}

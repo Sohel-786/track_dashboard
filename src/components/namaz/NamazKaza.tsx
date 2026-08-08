@@ -40,7 +40,7 @@ type DayGroup = {
 };
 
 /**
- * Past-days Kaza workspace: date pills → expand day → mark make-ups.
+ * Past-days Kaza workspace: date squares (dd/mm/yyyy) → one expanded day → mark make-ups.
  * Same-day Kaza stays on the Today / Namaz tab cards.
  */
 export function NamazKaza({
@@ -64,6 +64,9 @@ export function NamazKaza({
   const [tasbeehByPrayer, setTasbeehByPrayer] = useState<
     Record<string, boolean>
   >({});
+  const [zamaatByPrayer, setZamaatByPrayer] = useState<Record<string, boolean>>(
+    {}
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,17 +119,13 @@ export function NamazKaza({
   const pastCount = pastDays.reduce((n, d) => n + d.prayers.length, 0);
   const hasActiveFilters = prayerFilter !== "";
 
-  // Keep selection valid as the queue / filter changes.
+  // Keep selection valid when the queue / filter changes (do not auto-open).
   useEffect(() => {
-    if (filteredPastDays.length === 0) {
-      setSelectedDate(null);
-      return;
-    }
     if (
-      !selectedDate ||
+      selectedDate &&
       !filteredPastDays.some((d) => d.date === selectedDate)
     ) {
-      setSelectedDate(filteredPastDays[0].date);
+      setSelectedDate(null);
     }
   }, [filteredPastDays, selectedDate]);
 
@@ -144,6 +143,7 @@ export function NamazKaza({
           prayer: item.prayer,
           sunnah: Boolean(sunnahByPrayer[key]),
           tasbeeh: Boolean(tasbeehByPrayer[key]),
+          zamaat: Boolean(zamaatByPrayer[key]),
         }),
       });
       setData(result);
@@ -168,8 +168,8 @@ export function NamazKaza({
               Outstanding Kaza
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Select a date pill to see which prayers were missed that day, then
-              mark each make-up. Completed prayers leave the list immediately.
+              Choose a date square to expand that day&apos;s missed prayers,
+              then mark each make-up. Only one day stays expanded at a time.
               Same-day make-ups stay on the{" "}
               <span className="font-semibold text-foreground">Today</span> tab.
               {data?.trackingStart
@@ -266,44 +266,46 @@ export function NamazKaza({
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Dates with missed prayers
                 </p>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Click a date to expand that day. Opening another date closes
+                  the previous one.
+                </p>
                 <div
-                  className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
-                  role="tablist"
+                  className="flex flex-wrap gap-2.5"
+                  role="listbox"
                   aria-label="Kaza dates"
+                  aria-orientation="horizontal"
                 >
                   {filteredPastDays.map((day) => {
                     const selected = day.date === selectedDate;
+                    const label = format(
+                      parseISO(`${day.date}T00:00:00`),
+                      "dd/MM/yyyy"
+                    );
                     return (
-                      <button
+                      <Button
                         key={day.date}
                         type="button"
-                        role="tab"
+                        role="option"
                         aria-selected={selected}
-                        onClick={() => setSelectedDate(day.date)}
+                        aria-expanded={selected}
+                        aria-label={`${label}, ${day.prayers.length} missed`}
+                        variant={selected ? "default" : "outline"}
+                        onClick={() =>
+                          setSelectedDate((prev) =>
+                            prev === day.date ? null : day.date
+                          )
+                        }
+                        title={`${day.dayLabel} · ${day.prayers.length} missed`}
                         className={cn(
-                          "inline-flex shrink-0 flex-col items-start gap-0.5 rounded-2xl border px-3.5 py-2.5 text-left transition",
+                          "h-[5.25rem] w-[5.25rem] shrink-0 rounded-lg p-1.5 text-center text-[11px] font-bold tabular-nums leading-tight tracking-tight",
                           selected
-                            ? "border-amber-500 bg-amber-600 text-white shadow-md shadow-amber-600/25"
-                            : "border-border bg-card hover:border-amber-400/50 hover:bg-amber-500/5"
+                            ? "border-amber-600 bg-amber-600 text-white hover:bg-amber-700"
+                            : "bg-card text-foreground hover:border-amber-500/70 hover:bg-amber-500/5"
                         )}
                       >
-                        <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">
-                          {day.dayLabel}
-                        </span>
-                        <span className="text-sm font-bold tabular-nums">
-                          {format(parseISO(`${day.date}T00:00:00`), "dd MMM")}
-                        </span>
-                        <span
-                          className={cn(
-                            "mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-bold",
-                            selected
-                              ? "bg-white/20 text-white"
-                              : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
-                          )}
-                        >
-                          {day.prayers.length} missed
-                        </span>
-                      </button>
+                        {label}
+                      </Button>
                     );
                   })}
                 </div>
@@ -311,8 +313,9 @@ export function NamazKaza({
 
               {selectedGroup ? (
                 <div
-                  className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
-                  role="tabpanel"
+                  className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+                  role="region"
+                  aria-label={`Missed prayers for ${selectedGroup.date}`}
                 >
                   <div className="flex flex-col gap-1 border-b border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                     <div>
@@ -323,7 +326,11 @@ export function NamazKaza({
                         )}
                       </h3>
                       <p className="text-xs text-muted-foreground">
-                        {selectedGroup.prayers.length} prayer
+                        {format(
+                          parseISO(`${selectedGroup.date}T00:00:00`),
+                          "dd/MM/yyyy"
+                        )}{" "}
+                        · {selectedGroup.prayers.length} prayer
                         {selectedGroup.prayers.length === 1 ? "" : "s"} still
                         need Kaza
                       </p>
@@ -367,8 +374,12 @@ export function NamazKaza({
                                 ) : null}
                               </div>
                               <p className="mt-0.5 text-xs text-muted-foreground">
-                                Missed on {selectedGroup.date} · mark when you
-                                have prayed the make-up
+                                Missed on{" "}
+                                {format(
+                                  parseISO(`${selectedGroup.date}T00:00:00`),
+                                  "dd/MM/yyyy"
+                                )}{" "}
+                                · mark when you have prayed the make-up
                               </p>
                               <div className="mt-2 flex flex-wrap gap-2">
                                 <ExtraToggle
@@ -394,6 +405,17 @@ export function NamazKaza({
                                     }))
                                   }
                                 />
+                                <ExtraToggle
+                                  label="With Zamaat"
+                                  active={Boolean(zamaatByPrayer[key])}
+                                  disabled={busy}
+                                  onClick={() =>
+                                    setZamaatByPrayer((prev) => ({
+                                      ...prev,
+                                      [key]: !prev[key],
+                                    }))
+                                  }
+                                />
                               </div>
                             </div>
                           </div>
@@ -413,7 +435,11 @@ export function NamazKaza({
                     })}
                   </ul>
                 </div>
-              ) : null}
+              ) : (
+                <div className="rounded-xl border border-dashed border-border bg-muted/15 px-4 py-10 text-center text-sm text-muted-foreground">
+                  Click a date square above to expand its missed prayers.
+                </div>
+              )}
             </>
           )}
         </div>

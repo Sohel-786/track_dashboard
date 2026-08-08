@@ -30,7 +30,7 @@ export default function NamazPage() {
         description={
           tab === "today"
             ? "Ahmedabad next namaz, Madhab for times, and today’s checklist. Same-day Kaza on cards; past days under the Kaza tab."
-            : "Make up missed prayers from previous days. Pick a date pill, review what was missed, and mark each Kaza as you complete it."
+            : "Make up missed prayers from previous days. Click a date square (dd/mm/yyyy), review what was missed, and mark each Kaza as you complete it."
         }
       />
 
