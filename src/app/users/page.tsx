@@ -1,19 +1,26 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, UserPlus } from "lucide-react";
+import { Search, UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, ApiError } from "@/lib/client-api";
 import { useAuth } from "@/components/AuthProvider";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { Dialog } from "@/components/ui/Dialog";
 import { AppDataTable, StatusBadge } from "@/components/ui/AppDataTable";
+import { Button } from "@/components/ui/button";
+import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { Input } from "@/components/ui/input";
+import { FilterLabel } from "@/components/ui/label";
 import {
-  filterInputClass,
-  filterLabelClass,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   listFilterCardClass,
-  outlineButtonClass,
-  primaryButtonClass,
   tableBodyCellClass,
   tableBodyRowClass,
   tableHeadCellClass,
@@ -53,6 +60,8 @@ export default function UsersPage() {
   useEffect(() => {
     if (user?.role === "admin") void load();
   }, [user, load]);
+
+  const hasActiveFilters = search.trim() !== "";
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -116,31 +125,30 @@ export default function UsersPage() {
         title="Users"
         description="Admin-only. Create users who will each own their own categories and entries."
         action={
-          <button
-            type="button"
-            onClick={() => setDialogOpen(true)}
-            className={primaryButtonClass}
-          >
-            <UserPlus className="h-4 w-4" />
+          <Button type="button" onClick={() => setDialogOpen(true)}>
+            <UserPlus />
             Add User
-          </button>
+          </Button>
         }
       />
 
       <div className={listFilterCardClass}>
         <div className="flex flex-wrap items-end gap-4 px-4 py-3">
-          <label className="min-w-[200px] flex-1">
-            <span className={filterLabelClass}>Search</span>
+          <div className="min-w-[200px] flex-1">
+            <FilterLabel>Search</FilterLabel>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
+              <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name, username, role..."
-                className={`${filterInputClass} pl-9`}
+                className="pl-9"
               />
             </div>
-          </label>
+          </div>
+          {hasActiveFilters ? (
+            <ClearFiltersButton onClick={() => setSearch("")} />
+          ) : null}
         </div>
       </div>
 
@@ -172,14 +180,15 @@ export default function UsersPage() {
                 <StatusBadge active={u.isActive} />
               </td>
               <td className={`${tableBodyCellClass} text-right`}>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   disabled={u.id === user?.id}
                   onClick={() => void toggleActive(u)}
-                  className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {u.isActive ? "Deactivate" : "Activate"}
-                </button>
+                </Button>
               </td>
             </tr>
           ))}
@@ -192,68 +201,69 @@ export default function UsersPage() {
         title="Add User"
         footer={
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setDialogOpen(false)}
-              className={`${outlineButtonClass} flex-1`}
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               form="user-form"
-              disabled={saving}
-              className={`${primaryButtonClass} flex-1`}
+              loading={saving}
+              className="flex-1"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Create
-            </button>
+            </Button>
           </div>
         }
       >
         <form id="user-form" onSubmit={onSubmit} className="space-y-4">
-          <label className="block">
-            <span className={filterLabelClass}>Display name</span>
-            <input
+          <div>
+            <FilterLabel>Display name</FilterLabel>
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className={filterInputClass}
               required
               autoFocus
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>Username</span>
-            <input
+          </div>
+          <div>
+            <FilterLabel>Username</FilterLabel>
+            <Input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className={filterInputClass}
               required
               minLength={3}
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>Password</span>
-            <input
+          </div>
+          <div>
+            <FilterLabel>Password</FilterLabel>
+            <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={filterInputClass}
               required
               minLength={4}
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>Role</span>
-            <select
+          </div>
+          <div>
+            <FilterLabel>Role</FilterLabel>
+            <Select
               value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className={filterInputClass}
+              onValueChange={(v) => setRole(v as UserRole)}
             >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
+              <SelectTrigger>
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">User</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </form>
       </Dialog>
     </PageShell>

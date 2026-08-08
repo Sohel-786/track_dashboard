@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useIsBelowLg } from "@/hooks/use-media-query";
 import { buildAppNavSections } from "@/lib/app-nav";
@@ -12,6 +12,15 @@ import type { AuthUser } from "@/types";
 const COLLAPSED_W = 64;
 const EXPANDED_W = 280;
 
+function readSidebarPinned(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem("trackdash.sidebarPinned") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function AppChrome({
   user,
   children,
@@ -20,22 +29,11 @@ export function AppChrome({
   children: React.ReactNode;
 }) {
   const isBelowLg = useIsBelowLg();
-  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(readSidebarPinned);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => {
-    if (!isBelowLg) setMobileOpen(false);
-  }, [isBelowLg]);
-
-  useEffect(() => {
-    try {
-      if (localStorage.getItem("trackdash.sidebarPinned") === "1") {
-        setSidebarPinned(true);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  /** Drawer only mounts open on small screens — no sync effect needed. */
+  const drawerOpen = isBelowLg && mobileOpen;
 
   const handleSidebarExpand = (expanded: boolean) => {
     setSidebarPinned(expanded);
@@ -56,7 +54,7 @@ export function AppChrome({
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">
       <AnimatePresence>
-        {mobileOpen ? (
+        {drawerOpen ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -77,7 +75,7 @@ export function AppChrome({
       <div
         className={cn(
           "fixed inset-y-0 left-0 z-50 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
-          mobileOpen
+          drawerOpen
             ? "pointer-events-auto max-lg:translate-x-0"
             : "pointer-events-none max-lg:-translate-x-full",
           "max-lg:shadow-2xl lg:pointer-events-auto lg:translate-x-0"

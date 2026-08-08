@@ -7,7 +7,6 @@ import {
   CalendarRange,
   CheckCircle2,
   Loader2,
-  RotateCcw,
   Target,
   TrendingUp,
 } from "lucide-react";
@@ -18,6 +17,7 @@ import {
   trackingStartLabel,
   type AnalyticsQuickRange,
 } from "@/lib/date-ranges";
+import { hasActiveAnalyticsRangeFilter } from "@/lib/filter-utils";
 import type { AnalyticsResponse, Category, TrendPoint } from "@/types";
 import {
   AnalyticsKpiCard,
@@ -32,11 +32,19 @@ import {
   SERIES_COLORS,
 } from "@/components/dashboard/chart-theme";
 import { cn } from "@/lib/utils";
+import { listFilterCardClass } from "@/lib/ui-styles";
+import { Button } from "@/components/ui/button";
+import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { DatePicker } from "@/components/ui/date-picker";
+import { FilterLabel } from "@/components/ui/label";
 import {
-  filterInputClass,
-  filterLabelClass,
-  listFilterCardClass,
-} from "@/lib/ui-styles";
+  SELECT_ALL,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const AreaChart = dynamic(
   () => import("recharts").then((m) => m.AreaChart),
@@ -182,22 +190,30 @@ function CategoryTargetBarChart({
 
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
           <TargetLegend />
-          <label className="block min-w-[12rem] sm:min-w-[14rem]">
+          <div className="min-w-[12rem] sm:min-w-[14rem]">
             <span className="sr-only">Bar chart category</span>
-            <select
-              value={categoryId}
-              onChange={(e) => onCategoryChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs font-semibold outline-none ring-teal-500/30 focus:ring-2"
-              aria-label="Select category for bar chart"
+            <Select
+              value={categoryId || SELECT_ALL}
+              onValueChange={(value) =>
+                onCategoryChange(value === SELECT_ALL ? "" : value)
+              }
             >
-              <option value="">Select category…</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} (target {c.target}/day)
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger
+                className="h-9 text-xs font-semibold"
+                aria-label="Select category for bar chart"
+              >
+                <SelectValue placeholder="Select category…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>Select category…</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} (target {c.target}/day)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -271,20 +287,31 @@ function CategoryTargetBarChart({
 }
 
 export default function DashboardAnalytics() {
-  const defaultRange = resolveAnalyticsQuickRange("today");
+  const baselineRange = resolveAnalyticsQuickRange("today");
   const [quick, setQuick] = useState<AnalyticsQuickRange>("today");
-  const [from, setFrom] = useState(defaultRange.from);
-  const [to, setTo] = useState(defaultRange.to);
+  const [from, setFrom] = useState(baselineRange.from);
+  const [to, setTo] = useState(baselineRange.to);
   const [categories, setCategories] = useState<Category[]>([]);
   /** Dashboard filter — scopes KPIs and other charts (not the BarChart picker). */
   const [filterCategoryId, setFilterCategoryId] = useState("");
   /** Independent category for the target BarChart. */
   const [barCategoryId, setBarCategoryId] = useState("");
   const [grain, setGrain] = useState<Grain>("day");
-  const [data, setData] = useState<AnalyticsResponse | null>(null);
+  /** Unfiltered analytics payload — always includes every category (BarChart source). */
+  const [baseData, setBaseData] = useState<AnalyticsResponse | null>(null);
+  /** Category-scoped payload when the dashboard category filter is set. */
+  const [scopedData, setScopedData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [scopedLoading, setScopedLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trackingStart = getTrackingStartDate();
+
+  const hasActiveFilters = useMemo(
+    () =>
+      Boolean(filterCategoryId) ||
+      hasActiveAnalyticsRangeFilter(quick, from, to, "today"),
+    [filterCategoryId, quick, from, to]
+  );
 
   useEffect(() => {
     void api<Category[]>("/api/categories")
@@ -297,21 +324,15 @@ export default function DashboardAnalytics() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    async function loadBase() {
       setLoading(true);
       setError(null);
       try {
-        // Always load all categories so the BarChart can pick any category
-        // independently of the dashboard filter.
-        const params = new URLSearchParams({
-          range: quick,
-          from,
-          to,
-        });
+        const params = new URLSearchParams({ range: quick, from, to });
         const result = await api<AnalyticsResponse>(
           `/api/analytics?${params.toString()}`
         );
-        if (!cancelled) setData(result);
+        if (!cancelled) setBaseData(result);
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Failed to load analytics");
@@ -320,11 +341,43 @@ export default function DashboardAnalytics() {
         if (!cancelled) setLoading(false);
       }
     }
-    void load();
+    void loadBase();
     return () => {
       cancelled = true;
     };
   }, [quick, from, to]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadScoped() {
+      if (!filterCategoryId) {
+        setScopedData(null);
+        setScopedLoading(false);
+        return;
+      }
+      setScopedLoading(true);
+      try {
+        const params = new URLSearchParams({
+          range: quick,
+          from,
+          to,
+          categoryId: filterCategoryId,
+        });
+        const result = await api<AnalyticsResponse>(
+          `/api/analytics?${params.toString()}`
+        );
+        if (!cancelled) setScopedData(result);
+      } catch {
+        if (!cancelled) setScopedData(null);
+      } finally {
+        if (!cancelled) setScopedLoading(false);
+      }
+    }
+    void loadScoped();
+    return () => {
+      cancelled = true;
+    };
+  }, [quick, from, to, filterCategoryId]);
 
   useEffect(() => {
     if (
@@ -358,65 +411,48 @@ export default function DashboardAnalytics() {
     setFrom(range.from);
     setTo(range.to);
     setFilterCategoryId("");
+    setScopedData(null);
   }
+
+  /** Charts / KPIs (everything except Category BarChart) honor the filter. */
+  const data =
+    filterCategoryId && scopedData
+      ? scopedData
+      : !filterCategoryId
+        ? baseData
+        : null;
+  const awaitingCategoryScope =
+    Boolean(filterCategoryId) && scopedLoading && !scopedData;
 
   const filteredProgressive = useMemo(() => {
     if (!data) return [];
-    if (!filterCategoryId) return data.progressiveByCategory;
-    return data.progressiveByCategory.filter(
-      (c) => c.categoryId === filterCategoryId
-    );
-  }, [data, filterCategoryId]);
+    return data.progressiveByCategory;
+  }, [data]);
 
   const filteredByCategory = useMemo(() => {
     if (!data) return [];
-    if (!filterCategoryId) return data.byCategory;
-    return data.byCategory.filter((c) => c.categoryId === filterCategoryId);
-  }, [data, filterCategoryId]);
+    return data.byCategory;
+  }, [data]);
 
   const filteredKpis = useMemo(() => {
     if (!data) return null;
-    if (!filterCategoryId) return data.kpis;
-    const cat = data.byCategory.find((c) => c.categoryId === filterCategoryId);
-    const progressive = data.progressiveByCategory.find(
-      (c) => c.categoryId === filterCategoryId
-    );
-    const todayPoint = progressive?.series.find(
-      (p) => p.periodStart === data.appliedRange.to
-    );
-    const todayTotal = todayPoint?.value ?? 0;
-    return {
-      ...data.kpis,
-      todayTotal,
-      rangeTotal: cat?.total ?? 0,
-      entryCount: cat?.entryCount ?? 0,
-      activeCategories: cat ? 1 : 0,
-      categoriesHitTarget:
-        todayTotal >= (progressive?.target ?? Number.POSITIVE_INFINITY) ? 1 : 0,
-      weekTotal: data.kpis.weekTotal,
-      monthTotal: data.kpis.monthTotal,
-      yearTotal: data.kpis.yearTotal,
-    };
-  }, [data, filterCategoryId]);
+    return data.kpis;
+  }, [data]);
 
   const trend = useMemo(() => {
     if (!data) return [];
-    if (filterCategoryId) {
-      const cat = data.progressiveByCategory.find(
-        (c) => c.categoryId === filterCategoryId
-      );
-      return cat?.series ?? [];
-    }
     return data.trends[grain] ?? [];
-  }, [data, grain, filterCategoryId]);
+  }, [data, grain]);
 
+  /** BarChart always reads the unfiltered payload so its own picker stays independent. */
   const barCategory = useMemo(() => {
-    if (!data || !barCategoryId) return null;
+    if (!baseData || !barCategoryId) return null;
     return (
-      data.progressiveByCategory.find((c) => c.categoryId === barCategoryId) ??
-      null
+      baseData.progressiveByCategory.find(
+        (c) => c.categoryId === barCategoryId
+      ) ?? null
     );
-  }, [data, barCategoryId]);
+  }, [baseData, barCategoryId]);
 
   const categoryBarSeries = useMemo((): CategoryBarPoint[] => {
     if (!barCategory) return [];
@@ -447,79 +483,81 @@ export default function DashboardAnalytics() {
   const filteredSingleProgressive =
     filteredProgressive.length === 1 ? filteredProgressive[0] : null;
 
+  const filterCategoryName =
+    categories.find((c) => c.id === filterCategoryId)?.name ?? null;
+
   return (
     <div className="space-y-6">
       <div className={listFilterCardClass}>
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
           {RANGE_PILLS.map((pill) => (
-            <button
+            <Button
               key={pill.key}
               type="button"
+              size="sm"
+              variant={quick === pill.key ? "default" : "secondary"}
               onClick={() => applyQuick(pill.key)}
               className={cn(
-                "rounded-full px-3 py-1 text-xs font-semibold transition-colors",
+                "rounded-full px-3",
                 quick === pill.key
-                  ? "bg-teal-600 text-white shadow-sm"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  ? "shadow-sm"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
               )}
             >
               {pill.label}
-            </button>
+            </Button>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block">
-            <span className={filterLabelClass}>From</span>
-            <input
-              type="date"
-              min={trackingStart}
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="w-full min-w-[10rem] sm:w-44">
+            <FilterLabel>From</FilterLabel>
+            <DatePicker
               value={from}
-              onChange={(e) => {
+              minIso={trackingStart}
+              onChange={(iso) => {
+                if (!iso) return;
                 setQuick("custom");
-                setFrom(e.target.value);
+                setFrom(iso);
               }}
-              className={filterInputClass}
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>To</span>
-            <input
-              type="date"
-              min={trackingStart}
-              value={to}
-              onChange={(e) => {
-                setQuick("custom");
-                setTo(e.target.value);
-              }}
-              className={filterInputClass}
-            />
-          </label>
-          <label className="block sm:col-span-2 lg:col-span-1">
-            <span className={filterLabelClass}>Category</span>
-            <select
-              value={filterCategoryId}
-              onChange={(e) => setFilterCategoryId(e.target.value)}
-              className={filterInputClass}
-            >
-              <option value="">All categories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-rose-200 bg-card px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/30"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Clear filters
-            </button>
           </div>
+          <div className="w-full min-w-[10rem] sm:w-44">
+            <FilterLabel>To</FilterLabel>
+            <DatePicker
+              value={to}
+              minIso={trackingStart}
+              onChange={(iso) => {
+                if (!iso) return;
+                setQuick("custom");
+                setTo(iso);
+              }}
+            />
+          </div>
+          <div className="w-full min-w-[12rem] flex-1 sm:max-w-xs">
+            <FilterLabel>Category</FilterLabel>
+            <Select
+              value={filterCategoryId || SELECT_ALL}
+              onValueChange={(value) =>
+                setFilterCategoryId(value === SELECT_ALL ? "" : value)
+              }
+            >
+              <SelectTrigger aria-label="Filter dashboard by category">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All categories</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+                   </div>
+          {hasActiveFilters ? (
+            <ClearFiltersButton onClick={resetFilters} />
+          ) : null}
         </div>
       </div>
 
@@ -532,56 +570,90 @@ export default function DashboardAnalytics() {
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
           {error}
         </div>
-      ) : data && filteredKpis ? (
+      ) : baseData ? (
         <>
-          <p className="text-xs text-muted-foreground">
-            Metrics count from go-live ({trackingStartLabel(trackingStart)}).
-            Week / month / year ranges are clipped to that start date.
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <AnalyticsKpiCard
-              label="Today"
-              sub="Sum of today's entries"
-              value={filteredKpis.todayTotal}
-              icon={CalendarDays}
-              theme={KPI_THEMES.today}
-            />
-            <AnalyticsKpiCard
-              label="This Week"
-              sub="Last 7 days"
-              value={filteredKpis.weekTotal}
-              icon={TrendingUp}
-              theme={KPI_THEMES.week}
-            />
-            <AnalyticsKpiCard
-              label="This Month"
-              sub="Month to date"
-              value={filteredKpis.monthTotal}
-              icon={CalendarRange}
-              theme={KPI_THEMES.month}
-            />
-            <AnalyticsKpiCard
-              label="This Year"
-              sub="Year to date"
-              value={filteredKpis.yearTotal}
-              icon={Target}
-              theme={KPI_THEMES.year}
-            />
-            <AnalyticsKpiCard
-              label="Selected Range"
-              sub={`${data.appliedRange.from} → ${data.appliedRange.to}`}
-              value={filteredKpis.rangeTotal}
-              icon={TrendingUp}
-              theme={KPI_THEMES.range}
-            />
-            <AnalyticsKpiCard
-              label="Targets Hit Today"
-              sub={`${filteredKpis.categoriesHitTarget} of ${filteredKpis.activeCategories} categories met daily target`}
-              value={filteredKpis.categoriesHitTarget}
-              icon={CheckCircle2}
-              theme={KPI_THEMES.target}
-            />
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              Metrics count from go-live ({trackingStartLabel(trackingStart)}).
+              Week / month / year ranges are clipped to that start date.
+            </span>
+            {filterCategoryName ? (
+              <span className="inline-flex items-center rounded-full bg-teal-500/15 px-2.5 py-0.5 font-semibold text-teal-800 dark:text-teal-200">
+                Filtered · {filterCategoryName}
+                {scopedLoading ? (
+                  <Loader2 className="ml-1.5 h-3 w-3 animate-spin" />
+                ) : null}
+              </span>
+            ) : null}
           </div>
+
+          {awaitingCategoryScope || !data || !filteredKpis ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading filtered analytics...
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <AnalyticsKpiCard
+                label="Today"
+                sub={
+                  filterCategoryName
+                    ? `Today · ${filterCategoryName}`
+                    : "Sum of today's entries"
+                }
+                value={filteredKpis.todayTotal}
+                icon={CalendarDays}
+                theme={KPI_THEMES.today}
+              />
+              <AnalyticsKpiCard
+                label="This Week"
+                sub={
+                  filterCategoryName
+                    ? `Last 7 days · ${filterCategoryName}`
+                    : "Last 7 days"
+                }
+                value={filteredKpis.weekTotal}
+                icon={TrendingUp}
+                theme={KPI_THEMES.week}
+              />
+              <AnalyticsKpiCard
+                label="This Month"
+                sub={
+                  filterCategoryName
+                    ? `Month to date · ${filterCategoryName}`
+                    : "Month to date"
+                }
+                value={filteredKpis.monthTotal}
+                icon={CalendarRange}
+                theme={KPI_THEMES.month}
+              />
+              <AnalyticsKpiCard
+                label="This Year"
+                sub={
+                  filterCategoryName
+                    ? `Year to date · ${filterCategoryName}`
+                    : "Year to date"
+                }
+                value={filteredKpis.yearTotal}
+                icon={Target}
+                theme={KPI_THEMES.year}
+              />
+              <AnalyticsKpiCard
+                label="Selected Range"
+                sub={`${data.appliedRange.from} → ${data.appliedRange.to}`}
+                value={filteredKpis.rangeTotal}
+                icon={TrendingUp}
+                theme={KPI_THEMES.range}
+              />
+              <AnalyticsKpiCard
+                label="Targets Hit Today"
+                sub={`${filteredKpis.categoriesHitTarget} of ${filteredKpis.activeCategories} categories met daily target`}
+                value={filteredKpis.categoriesHitTarget}
+                icon={CheckCircle2}
+                theme={KPI_THEMES.target}
+              />
+            </div>
+          )}
 
           <CategoryTargetBarChart
             categories={categories}
@@ -592,136 +664,183 @@ export default function DashboardAnalytics() {
             categoryName={barCategory?.name ?? null}
           />
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <TrendChartShell
-              title={
-                filterCategoryId
-                  ? "Entry trend (filtered category)"
-                  : "Entry trend"
-              }
-              chartHeight={260}
-              action={
-                filterCategoryId ? undefined : (
-                  <select
-                    value={grain}
-                    onChange={(e) => setGrain(e.target.value as Grain)}
-                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs"
-                  >
-                    <option value="day">Day</option>
-                    <option value="week">Week</option>
-                    <option value="month">Month</option>
-                  </select>
-                )
-              }
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trend}>
-                  <defs>
-                    <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} />
-                  <XAxis
-                    dataKey="period"
-                    tick={CHART_TICK}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis allowDecimals={false} tick={CHART_TICK} />
-                  <Tooltip {...CHART_TOOLTIP_STYLE} />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    name="Total"
-                    stroke="#0d9488"
-                    strokeWidth={3}
-                    fill="url(#trendFill)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </TrendChartShell>
+          {awaitingCategoryScope || !data || !filteredKpis ? null : (
+            <>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <TrendChartShell
+                  title={
+                    filterCategoryName
+                      ? `Entry trend · ${filterCategoryName}`
+                      : "Entry trend"
+                  }
+                  chartHeight={260}
+                  action={
+                    <Select
+                      value={grain}
+                      onValueChange={(value) => setGrain(value as Grain)}
+                    >
+                      <SelectTrigger className="h-8 w-[7.5rem] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="day">Day</SelectItem>
+                        <SelectItem value="week">Week</SelectItem>
+                        <SelectItem value="month">Month</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  }
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={trend}>
+                      <defs>
+                        <linearGradient
+                          id="trendFill"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#0d9488"
+                            stopOpacity={0.35}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#0d9488"
+                            stopOpacity={0.02}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={CHART_GRID_STROKE}
+                      />
+                      <XAxis
+                        dataKey="period"
+                        tick={CHART_TICK}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis allowDecimals={false} tick={CHART_TICK} />
+                      <Tooltip {...CHART_TOOLTIP_STYLE} />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        name="Total"
+                        stroke="#0d9488"
+                        strokeWidth={3}
+                        fill="url(#trendFill)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </TrendChartShell>
 
-            <HorizontalBarChart
-              title="By category (avg daily vs daily target)"
-              rows={filteredByCategory.map((c) => ({
-                label: c.name,
-                count: Math.round(c.avgDaily),
-                sub: `Daily target ${c.target} · avg ${c.avgDaily} · hit ${c.daysHit}/${c.daysTracked || 0} days`,
-              }))}
-              emptyLabel="No entries in this range. Add categories and log daily values."
-            />
-          </div>
+                <HorizontalBarChart
+                  title={
+                    filterCategoryName
+                      ? `Category progress · ${filterCategoryName}`
+                      : "By category (avg daily vs daily target)"
+                  }
+                  rows={filteredByCategory.map((c) => ({
+                    label: c.name,
+                    count: Math.round(c.avgDaily),
+                    sub: `Daily target ${c.target} · avg ${c.avgDaily} · hit ${c.daysHit}/${c.daysTracked || 0} days`,
+                  }))}
+                  emptyLabel="No entries in this range. Add categories and log daily values."
+                />
+              </div>
 
-          <TrendChartShell
-            title={
-              filteredSingleProgressive
-                ? `Daily total · ${filteredSingleProgressive.name} (daily target ${filteredSingleProgressive.target})`
-                : "Daily totals by category"
-            }
-            chartHeight={300}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              {filteredSingleProgressive ? (
-                <AreaChart data={filteredSingleProgressive.series}>
-                  <defs>
-                    <linearGradient id="progFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0d9488" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#0d9488" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} />
-                  <XAxis
-                    dataKey="period"
-                    tick={CHART_TICK}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis allowDecimals={false} tick={CHART_TICK} />
-                  <Tooltip {...CHART_TOOLTIP_STYLE} />
-                  <ReferenceLine
-                    y={filteredSingleProgressive.target}
-                    stroke="#f59e0b"
-                    strokeDasharray="4 4"
-                    label={{
-                      value: "Target",
-                      fill: "hsl(var(--muted-foreground))",
-                      fontSize: 11,
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    name="Day total"
-                    stroke="#0d9488"
-                    strokeWidth={3}
-                    fill="url(#progFill)"
-                  />
-                </AreaChart>
-              ) : (
-                <LineChart data={progressiveChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} />
-                  <XAxis
-                    dataKey="period"
-                    tick={CHART_TICK}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis allowDecimals={false} tick={CHART_TICK} />
-                  <Tooltip {...CHART_TOOLTIP_STYLE} />
-                  <Legend />
-                  {filteredProgressive.map((cat, i) => (
-                    <Line
-                      key={cat.categoryId}
-                      type="monotone"
-                      dataKey={cat.name}
-                      stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                      strokeWidth={2.5}
-                      dot={false}
-                    />
-                  ))}
-                </LineChart>
-              )}
-            </ResponsiveContainer>
-          </TrendChartShell>
+              <TrendChartShell
+                title={
+                  filteredSingleProgressive
+                    ? `Daily total · ${filteredSingleProgressive.name} (daily target ${filteredSingleProgressive.target})`
+                    : "Daily totals by category"
+                }
+                chartHeight={300}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  {filteredSingleProgressive ? (
+                    <AreaChart data={filteredSingleProgressive.series}>
+                      <defs>
+                        <linearGradient
+                          id="progFill"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#0d9488"
+                            stopOpacity={0.35}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#0d9488"
+                            stopOpacity={0.02}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={CHART_GRID_STROKE}
+                      />
+                      <XAxis
+                        dataKey="period"
+                        tick={CHART_TICK}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis allowDecimals={false} tick={CHART_TICK} />
+                      <Tooltip {...CHART_TOOLTIP_STYLE} />
+                      <ReferenceLine
+                        y={filteredSingleProgressive.target}
+                        stroke="#f59e0b"
+                        strokeDasharray="4 4"
+                        label={{
+                          value: "Target",
+                          fill: "hsl(var(--muted-foreground))",
+                          fontSize: 11,
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        name="Day total"
+                        stroke="#0d9488"
+                        strokeWidth={3}
+                        fill="url(#progFill)"
+                      />
+                    </AreaChart>
+                  ) : (
+                    <LineChart data={progressiveChartData}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={CHART_GRID_STROKE}
+                      />
+                      <XAxis
+                        dataKey="period"
+                        tick={CHART_TICK}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis allowDecimals={false} tick={CHART_TICK} />
+                      <Tooltip {...CHART_TOOLTIP_STYLE} />
+                      <Legend />
+                      {filteredProgressive.map((cat, i) => (
+                        <Line
+                          key={cat.categoryId}
+                          type="monotone"
+                          dataKey={cat.name}
+                          stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                          strokeWidth={2.5}
+                          dot={false}
+                        />
+                      ))}
+                    </LineChart>
+                  )}
+                </ResponsiveContainer>
+              </TrendChartShell>
+            </>
+          )}
         </>
       ) : null}
     </div>

@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
 import { ok } from "@/lib/api-helpers";
 

@@ -8,7 +8,6 @@ import {
   Flame,
   History,
   Loader2,
-  RotateCcw,
   Sparkles,
   Target,
 } from "lucide-react";
@@ -19,6 +18,7 @@ import {
   resolveAnalyticsQuickRange,
   trackingStartLabel,
 } from "@/lib/date-ranges";
+import { hasActiveAnalyticsRangeFilter } from "@/lib/filter-utils";
 import type { NamazAnalyticsResponse } from "@/types";
 import {
   AnalyticsKpiCard,
@@ -33,14 +33,16 @@ import {
 import { AppDataTable } from "@/components/ui/AppDataTable";
 import { cn } from "@/lib/utils";
 import {
-  filterInputClass,
-  filterLabelClass,
   listFilterCardClass,
   tableBodyCellClass,
   tableBodyRowClass,
   tableHeadCellClass,
   tableHeadRowClass,
 } from "@/lib/ui-styles";
+import { Button } from "@/components/ui/button";
+import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { DatePicker } from "@/components/ui/date-picker";
+import { FilterLabel } from "@/components/ui/label";
 
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), {
   ssr: false,
@@ -68,6 +70,7 @@ const Legend = dynamic(() => import("recharts").then((m) => m.Legend), {
 });
 
 const RANGE_PILLS: { key: AnalyticsQuickRange; label: string }[] = [
+  { key: "today", label: "Today" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
   { key: "year", label: "Year" },
@@ -113,6 +116,20 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
     }
   }
 
+  function resetFilters() {
+    const range = resolveAnalyticsQuickRange("today");
+    setQuick("today");
+    setFrom(range.from);
+    setTo(range.to);
+  }
+
+  const hasActiveFilters = hasActiveAnalyticsRangeFilter(
+    quick,
+    from,
+    to,
+    "today"
+  );
+
   return (
     <section className="space-y-5">
       <div>
@@ -132,63 +149,54 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
       <div className={listFilterCardClass}>
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
           {RANGE_PILLS.map((pill) => (
-            <button
+            <Button
               key={pill.key}
               type="button"
+              size="sm"
+              variant={quick === pill.key ? "default" : "secondary"}
               onClick={() => applyQuick(pill.key)}
               className={cn(
-                "rounded-full px-3 py-1 text-xs font-semibold transition-colors",
+                "rounded-full px-3",
                 quick === pill.key
-                  ? "bg-teal-600 text-white shadow-sm"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  ? "shadow-sm"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
               )}
             >
               {pill.label}
-            </button>
+            </Button>
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
-          <label className="block">
-            <span className={filterLabelClass}>From</span>
-            <input
-              type="date"
-              min={trackingStart}
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="w-full min-w-[10rem] sm:w-44">
+            <FilterLabel>From</FilterLabel>
+            <DatePicker
               value={from}
-              onChange={(e) => {
+              minIso={trackingStart}
+              onChange={(iso) => {
+                if (!iso) return;
                 setQuick("custom");
-                setFrom(e.target.value);
+                setFrom(iso);
               }}
-              className={filterInputClass}
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>To</span>
-            <input
-              type="date"
-              min={trackingStart}
-              value={to}
-              onChange={(e) => {
-                setQuick("custom");
-                setTo(e.target.value);
-              }}
-              className={filterInputClass}
-            />
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={() => {
-                const range = resolveAnalyticsQuickRange("today");
-                setQuick("today");
-                setFrom(range.from);
-                setTo(range.to);
-              }}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-rose-200 bg-card px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/30"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reset
-            </button>
           </div>
+          <div className="w-full min-w-[10rem] sm:w-44">
+            <FilterLabel>To</FilterLabel>
+            <DatePicker
+              value={to}
+              minIso={trackingStart}
+              onChange={(iso) => {
+                if (!iso) return;
+                setQuick("custom");
+                setTo(iso);
+              }}
+            />
+          </div>
+          {hasActiveFilters ? (
+            <ClearFiltersButton
+              onClick={resetFilters}
+              label="Clear filters"
+            />
+          ) : null}
         </div>
       </div>
 

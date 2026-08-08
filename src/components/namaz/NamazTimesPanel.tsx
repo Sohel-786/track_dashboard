@@ -12,6 +12,15 @@ import {
 } from "@/lib/namaz-madhab";
 import { NAMAZ_PRAYER_META, type NamazPrayer } from "@/lib/namaz";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { FilterLabel } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type NextFocus =
   | {
@@ -227,42 +236,36 @@ export function NamazTimesPanel({
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1 sm:max-w-xs">
-                <label
-                  htmlFor="times-madhab"
-                  className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                >
-                  Madhab for times
-                </label>
-                <select
-                  id="times-madhab"
+                <FilterLabel>Madhab for times</FilterLabel>
+                <Select
                   disabled={busy || loading}
                   value={madhabId}
-                  onChange={(e) =>
-                    void onMadhabChange(e.target.value as NamazMadhabId)
+                  onValueChange={(value) =>
+                    void onMadhabChange(value as NamazMadhabId)
                   }
-                  className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm font-semibold outline-none ring-teal-500/40 focus:ring-2 disabled:opacity-60"
                 >
-                  {NAMAZ_MADHABS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label} ({m.arabic})
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="font-semibold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {NAMAZ_MADHABS.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.label} ({m.arabic})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               {previewDirty ? (
-                <button
+                <Button
                   type="button"
-                  disabled={busy}
+                  loading={busy}
                   onClick={() => void saveMadhabForChecklist()}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-60"
+                  className="text-xs font-bold"
                 >
-                  {busy ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
-                  )}
+                  {!busy ? <Sparkles className="h-3.5 w-3.5" /> : null}
                   Apply to checklist
-                </button>
+                </Button>
               ) : null}
             </div>
             <p className="mt-2 max-w-lg text-[11px] text-muted-foreground">

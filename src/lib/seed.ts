@@ -99,9 +99,12 @@ export async function forceSeedDemoData() {
 
 /** Kept for script compatibility; no-op demo month seeding. */
 export async function seedMonthEntries(
-  _userId: Types.ObjectId,
-  _categories: { _id: Types.ObjectId; name: string; target: number }[],
-  _options?: { force?: boolean }
+  ..._args: [
+    Types.ObjectId,
+    { _id: Types.ObjectId; name: string; target: number }[],
+    ({ force?: boolean } | undefined)?,
+  ]
 ) {
+  void _args;
   return 0;
 }

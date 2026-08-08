@@ -1,18 +1,25 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Pencil, Plus, Search } from "lucide-react";
+import { Pencil, Plus, Search } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, ApiError } from "@/lib/client-api";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { Dialog } from "@/components/ui/Dialog";
 import { AppDataTable, StatusBadge } from "@/components/ui/AppDataTable";
+import { Button } from "@/components/ui/button";
+import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { Input } from "@/components/ui/input";
+import { FilterLabel } from "@/components/ui/label";
 import {
-  filterInputClass,
-  filterLabelClass,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   listFilterCardClass,
-  outlineButtonClass,
-  primaryButtonClass,
   tableBodyCellClass,
   tableBodyRowClass,
   tableHeadCellClass,
@@ -50,6 +57,9 @@ export default function CategoriesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const hasActiveFilters =
+    search.trim() !== "" || statusFilter !== "all";
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -144,41 +154,53 @@ export default function CategoriesPage() {
         title="Category Master"
         description="Create categories with a daily target (e.g. Pushups → 100 per day)."
         action={
-          <button type="button" onClick={openCreate} className={primaryButtonClass}>
-            <Plus className="h-4 w-4" />
+          <Button type="button" onClick={openCreate}>
+            <Plus />
             Add Category
-          </button>
+          </Button>
         }
       />
 
       <div className={listFilterCardClass}>
         <div className="flex flex-wrap items-end gap-4 px-4 py-3">
-          <label className="min-w-[200px] flex-1">
-            <span className={filterLabelClass}>Search</span>
+          <div className="min-w-[200px] flex-1">
+            <FilterLabel>Search</FilterLabel>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
+              <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search category name..."
-                className={`${filterInputClass} pl-9`}
+                className="pl-9"
               />
             </div>
-          </label>
-          <label className="w-full sm:w-44">
-            <span className={filterLabelClass}>Status</span>
-            <select
+          </div>
+          <div className="w-full sm:w-44">
+            <FilterLabel>Status</FilterLabel>
+            <Select
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as typeof statusFilter)
+              onValueChange={(v) =>
+                setStatusFilter(v as typeof statusFilter)
               }
-              className={filterInputClass}
             >
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </label>
+              <SelectTrigger>
+                <SelectValue placeholder="All" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {hasActiveFilters ? (
+            <ClearFiltersButton
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+              }}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -211,30 +233,34 @@ export default function CategoriesPage() {
               </td>
               <td className={`${tableBodyCellClass} text-right`}>
                 <div className="inline-flex gap-2">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => openEdit(cat)}
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                     Edit
-                  </button>
+                  </Button>
                   {cat.isActive ? (
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={() => void deactivate(cat.id)}
-                      className="inline-flex h-8 items-center rounded-md border border-rose-200 px-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/40"
+                      className="border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/40"
                     >
                       Deactivate
-                    </button>
+                    </Button>
                   ) : (
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={() => void reactivate(cat.id)}
-                      className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
                     >
                       Reactivate
-                    </button>
+                    </Button>
                   )}
                 </div>
               </td>
@@ -249,49 +275,47 @@ export default function CategoriesPage() {
         title={editingId ? "Edit Category" : "Add Category"}
         footer={
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={closeDialog}
-              className={`${outlineButtonClass} flex-1`}
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               form="category-form"
-              disabled={saving}
-              className={`${primaryButtonClass} flex-1`}
+              loading={saving}
+              className="flex-1"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {editingId ? "Update" : "Save"}
-            </button>
+            </Button>
           </div>
         }
       >
         <form id="category-form" onSubmit={onSubmit} className="space-y-4">
-          <label className="block">
-            <span className={filterLabelClass}>Category name</span>
-            <input
+          <div>
+            <FilterLabel>Category name</FilterLabel>
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Pushups"
-              className={filterInputClass}
               required
               autoFocus
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>Daily target (minimum 1)</span>
-            <input
+          </div>
+          <div>
+            <FilterLabel>Daily target (minimum 1)</FilterLabel>
+            <Input
               type="number"
               min={1}
               step={1}
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              className={filterInputClass}
               required
             />
-          </label>
+          </div>
         </form>
       </Dialog>
     </PageShell>

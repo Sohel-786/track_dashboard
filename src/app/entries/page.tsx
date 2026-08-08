@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
-  Loader2,
   Plus,
   Target,
   Trash2,
@@ -14,12 +13,21 @@ import { todayIso } from "@/lib/date-ranges";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { Dialog } from "@/components/ui/Dialog";
 import { AppDataTable } from "@/components/ui/AppDataTable";
+import { Button } from "@/components/ui/button";
+import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
+import { FilterLabel } from "@/components/ui/label";
 import {
-  filterInputClass,
-  filterLabelClass,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SELECT_ALL,
+} from "@/components/ui/select";
+import {
   listFilterCardClass,
-  outlineButtonClass,
-  primaryButtonClass,
   tableBodyCellClass,
   tableBodyRowClass,
   tableHeadCellClass,
@@ -73,6 +81,7 @@ export default function EntriesPage() {
   }, [daySummaries, categoryId]);
 
   const isToday = selectedDate === todayIso();
+  const hasActiveFilters = !isToday || Boolean(filterCategoryId);
 
   function openCreate() {
     setValue("");
@@ -129,54 +138,55 @@ export default function EntriesPage() {
         title="Daily Entries"
         description="Log multiple values toward each category’s daily target. Targets reset every day."
         action={
-          <button
+          <Button
             type="button"
             onClick={openCreate}
             disabled={categories.length === 0}
-            className={primaryButtonClass}
           >
-            <Plus className="h-4 w-4" />
+            <Plus />
             Add Entry
-          </button>
+          </Button>
         }
       />
 
       <div className={listFilterCardClass}>
         <div className="flex flex-wrap items-end gap-4 px-4 py-3">
-          <label className="w-full sm:w-48">
-            <span className={filterLabelClass}>Day</span>
-            <input
-              type="date"
+          <div className="w-full sm:w-48">
+            <FilterLabel>Day</FilterLabel>
+            <DatePicker
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className={filterInputClass}
+              onChange={(iso) => iso && setSelectedDate(iso)}
             />
-          </label>
-          <label className="min-w-[180px] flex-1 sm:max-w-xs">
-            <span className={filterLabelClass}>Category filter</span>
-            <select
-              value={filterCategoryId}
-              onChange={(e) => setFilterCategoryId(e.target.value)}
-              className={filterInputClass}
+          </div>
+          <div className="min-w-[180px] flex-1 sm:max-w-xs">
+            <FilterLabel>Category filter</FilterLabel>
+            <Select
+              value={filterCategoryId || SELECT_ALL}
+              onValueChange={(v) =>
+                setFilterCategoryId(v === SELECT_ALL ? "" : v)
+              }
             >
-              <option value="">All categories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => setSelectedDate(todayIso())}
-            className={cn(
-              outlineButtonClass,
-              isToday && "border-teal-500 text-teal-700 dark:text-teal-300"
-            )}
-          >
-            {isToday ? "Viewing today" : "Jump to today"}
-          </button>
+              <SelectTrigger>
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All categories</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {hasActiveFilters ? (
+            <ClearFiltersButton
+              onClick={() => {
+                setSelectedDate(todayIso());
+                setFilterCategoryId("");
+              }}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -297,14 +307,16 @@ export default function EntriesPage() {
                 {entry.note || "—"}
               </td>
               <td className={`${tableBodyCellClass} text-right`}>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => void remove(entry.id)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                  className="h-8 w-8 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                   title="Delete"
                 >
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </Button>
               </td>
             </tr>
           ))}
@@ -317,44 +329,46 @@ export default function EntriesPage() {
         title={`Add entry · ${selectedDate}`}
         footer={
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setDialogOpen(false)}
-              className={`${outlineButtonClass} flex-1`}
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               form="entry-form"
-              disabled={saving || categories.length === 0}
-              className={`${primaryButtonClass} flex-1`}
+              loading={saving}
+              disabled={categories.length === 0}
+              className="flex-1"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Add
-            </button>
+            </Button>
           </div>
         }
       >
         <form id="entry-form" onSubmit={onSubmit} className="space-y-4">
-          <label className="block">
-            <span className={filterLabelClass}>Category</span>
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              className={filterInputClass}
+          <div>
+            <FilterLabel>Category</FilterLabel>
+            <Select
+              value={categoryId || undefined}
+              onValueChange={setCategoryId}
               required
             >
-              <option value="" disabled>
-                Select category
-              </option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} (daily target {c.target})
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger>
+                <SelectValue placeholder="Select category" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} (daily target {c.target})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {selectedCategorySummary ? (
             <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-sm">
@@ -371,29 +385,27 @@ export default function EntriesPage() {
             </div>
           ) : null}
 
-          <label className="block">
-            <span className={filterLabelClass}>Value</span>
-            <input
+          <div>
+            <FilterLabel>Value</FilterLabel>
+            <Input
               type="number"
               min={0}
               step="any"
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="e.g. 20"
-              className={filterInputClass}
               required
               autoFocus
             />
-          </label>
-          <label className="block">
-            <span className={filterLabelClass}>Note (optional)</span>
-            <input
+          </div>
+          <div>
+            <FilterLabel>Note (optional)</FilterLabel>
+            <Input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Optional note"
-              className={filterInputClass}
             />
-          </label>
+          </div>
         </form>
       </Dialog>
     </PageShell>

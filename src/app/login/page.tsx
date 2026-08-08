@@ -7,6 +7,9 @@ import { Activity, Eye, EyeOff, Lock, User } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, ApiError } from "@/lib/client-api";
 import type { AuthUser } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -61,17 +64,15 @@ export default function LoginPage() {
 
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="username">
-                Username
-              </label>
+              <Label htmlFor="username">Username</Label>
               <div className="relative">
                 <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
+                <Input
                   id="username"
                   autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm outline-none ring-primary/30 focus:ring-2"
+                  className="h-11 rounded-xl bg-background pl-10"
                   placeholder="Enter username"
                   required
                   minLength={3}
@@ -80,25 +81,25 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="password">
-                Password
-              </label>
+              <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
+                <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-11 text-sm outline-none ring-primary/30 focus:ring-2"
+                  className="h-11 rounded-xl bg-background pl-10 pr-11"
                   placeholder="Enter password"
                   required
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? (
@@ -106,17 +107,17 @@ export default function LoginPage() {
                   ) : (
                     <Eye className="h-4 w-4" />
                   )}
-                </button>
+                </Button>
               </div>
             </div>
 
-            <button
+            <Button
               type="submit"
-              disabled={loading}
-              className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-sm font-semibold text-white shadow-lg shadow-teal-600/25 transition hover:brightness-105 disabled:opacity-60"
+              loading={loading}
+              className="mt-2 h-11 w-full rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-lg shadow-teal-600/25 hover:brightness-105 hover:bg-transparent"
             >
               {loading ? "Signing in..." : "Sign in"}
-            </button>
+            </Button>
           </form>
         </div>
       </motion.section>
