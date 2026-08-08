@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
+import { getAuthSecret } from "@/lib/env";
 
 export const SESSION_COOKIE = "track_session";
 /** Session valid for 30 days. */
@@ -12,13 +13,7 @@ export type SessionPayload = {
 };
 
 function getSecretKey() {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret || secret.length < 16) {
-    throw new Error(
-      "Please define a strong AUTH_SECRET (min 16 chars) in .env.local"
-    );
-  }
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(getAuthSecret());
 }
 
 export async function createSessionToken(

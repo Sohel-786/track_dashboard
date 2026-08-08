@@ -2,10 +2,10 @@
   "name": "TrackDash",
   "short_name": "TrackDash",
   "description": "Personal progress tracker with daily category entries and analytics",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#0f766e",
   "theme_color": "#0f766e",
   "icons": [

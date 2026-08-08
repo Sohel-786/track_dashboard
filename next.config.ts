@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import { assertRequiredEnvForBuild } from "./src/lib/env";
+
+// Fail Vercel/production builds when AUTH_SECRET or MONGODB_URI are missing
+// instead of shipping a broken login experience.
+assertRequiredEnvForBuild();
 
 const nextConfig: NextConfig = {
   turbopack: {

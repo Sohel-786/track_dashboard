@@ -1,13 +1,6 @@
 import mongoose from "mongoose";
 import { ensureSeedAdmin } from "@/lib/seed";
-
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  throw new Error(
-    "Please define the MONGODB_URI environment variable inside .env.local"
-  );
-}
+import { getMongoUri } from "@/lib/env";
 
 type MongooseCache = {
   conn: typeof mongoose | null;
@@ -32,9 +25,11 @@ async function connectDB() {
     return cached.conn;
   }
 
+  const uri = getMongoUri();
+
   if (!cached.promise) {
     cached.promise = mongoose
-      .connect(MONGODB_URI!, { bufferCommands: false })
+      .connect(uri, { bufferCommands: false })
       .then((m) => m);
   }
 

@@ -9,11 +9,40 @@ import {
   sessionCookieOptions,
 } from "@/lib/auth";
 import { fail, normalizeUsername, ok } from "@/lib/api-helpers";
+import { EnvError } from "@/lib/env";
 
 const schema = z.object({
   username: z.string().min(3).max(64),
   password: z.string().min(1).max(128),
 });
+
+function loginFailureMessage(error: unknown): { message: string; status: number } {
+  if (
+    error instanceof EnvError ||
+    (error instanceof Error && error.name === "EnvError")
+  ) {
+    return {
+      message:
+        "Server misconfiguration: required environment variables are missing. Check AUTH_SECRET and MONGODB_URI on the host (Vercel Environment Variables), then redeploy.",
+      status: 503,
+    };
+  }
+
+  if (
+    error instanceof Error &&
+    /ECONNREFUSED|ServerSelectionError|MongoNetworkError|ENOTFOUND/i.test(
+      error.message
+    )
+  ) {
+    return {
+      message:
+        "Database unavailable. For production, set MONGODB_URI to a reachable MongoDB Atlas cluster (not localhost).",
+      status: 503,
+    };
+  }
+
+  return { message: "Unable to login", status: 500 };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,10 +86,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error("Login error:", error);
-    const message =
-      error instanceof Error && /ECONNREFUSED|ServerSelectionError/i.test(error.message)
-        ? "Database unavailable. Start MongoDB or set a valid MONGODB_URI in .env.local."
-        : "Unable to login";
-    return NextResponse.json({ success: false, message }, { status: 500 });
+    const { message, status } = loginFailureMessage(error);
+    return NextResponse.json({ success: false, message }, { status });
   }
 }
