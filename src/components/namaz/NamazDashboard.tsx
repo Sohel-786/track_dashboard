@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarRange,
   CheckCircle2,
@@ -19,6 +19,7 @@ import {
   trackingStartLabel,
 } from "@/lib/date-ranges";
 import { hasActiveAnalyticsRangeFilter } from "@/lib/filter-utils";
+import { NAMAZ_PRAYERS, NAMAZ_PRAYER_META, type NamazPrayer } from "@/lib/namaz";
 import type { NamazAnalyticsResponse } from "@/types";
 import {
   AnalyticsKpiCard,
@@ -31,6 +32,18 @@ import {
   KPI_THEMES,
 } from "@/components/dashboard/chart-theme";
 import { AppDataTable } from "@/components/ui/AppDataTable";
+import { Button } from "@/components/ui/button";
+import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { DatePicker } from "@/components/ui/date-picker";
+import { FilterLabel } from "@/components/ui/label";
+import {
+  SELECT_ALL,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   listFilterCardClass,
@@ -39,10 +52,6 @@ import {
   tableHeadCellClass,
   tableHeadRowClass,
 } from "@/lib/ui-styles";
-import { Button } from "@/components/ui/button";
-import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
-import { DatePicker } from "@/components/ui/date-picker";
-import { FilterLabel } from "@/components/ui/label";
 
 const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), {
   ssr: false,
@@ -78,14 +87,19 @@ const RANGE_PILLS: { key: AnalyticsQuickRange; label: string }[] = [
 ];
 
 export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
-  const defaultRange = resolveAnalyticsQuickRange("today");
+  const baseline = resolveAnalyticsQuickRange("today");
   const [quick, setQuick] = useState<AnalyticsQuickRange>("today");
-  const [from, setFrom] = useState(defaultRange.from);
-  const [to, setTo] = useState(defaultRange.to);
+  const [from, setFrom] = useState(baseline.from);
+  const [to, setTo] = useState(baseline.to);
+  const [prayerFilter, setPrayerFilter] = useState("");
   const [data, setData] = useState<NamazAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const trackingStart = getTrackingStartDate();
+
+  const hasActiveFilters =
+    Boolean(prayerFilter) ||
+    hasActiveAnalyticsRangeFilter(quick, from, to, "today");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,7 +111,9 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
       );
       setData(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load namaz analytics");
+      setError(
+        e instanceof Error ? e.message : "Failed to load namaz analytics"
+      );
     } finally {
       setLoading(false);
     }
@@ -121,14 +137,52 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
     setQuick("today");
     setFrom(range.from);
     setTo(range.to);
+    setPrayerFilter("");
   }
 
-  const hasActiveFilters = hasActiveAnalyticsRangeFilter(
-    quick,
-    from,
-    to,
-    "today"
-  );
+  const prayerName = prayerFilter
+    ? NAMAZ_PRAYER_META[prayerFilter as NamazPrayer]?.label
+    : null;
+
+  const filteredByPrayer = useMemo(() => {
+    if (!data) return [];
+    if (!prayerFilter) return data.byPrayer;
+    return data.byPrayer.filter((p) => p.prayer === prayerFilter);
+  }, [data, prayerFilter]);
+
+  const filteredMissed = useMemo(() => {
+    if (!data) return [];
+    if (!prayerFilter) return data.missed;
+    return data.missed.filter((m) => m.prayer === prayerFilter);
+  }, [data, prayerFilter]);
+
+  const filteredKazaLog = useMemo(() => {
+    if (!data) return [];
+    if (!prayerFilter) return data.kazaLog;
+    return data.kazaLog.filter((m) => m.prayer === prayerFilter);
+  }, [data, prayerFilter]);
+
+  const filteredKpis = useMemo(() => {
+    if (!data) return null;
+    if (!prayerFilter) return data.kpis;
+    const row = data.byPrayer.find((p) => p.prayer === prayerFilter);
+    if (!row) return data.kpis;
+    const completed = row.prayed + row.kaza;
+    const expected = completed + row.missed;
+    return {
+      ...data.kpis,
+      prayedInRange: row.prayed,
+      kazaInRange: row.kaza,
+      completedInRange: completed,
+      missedInRange: row.missed,
+      sunnahInRange: row.sunnah,
+      tasbeehInRange: row.tasbeeh,
+      completionPct:
+        expected > 0
+          ? Math.round((completed / expected) * 1000) / 10
+          : data.kpis.completionPct,
+    };
+  }, [data, prayerFilter]);
 
   return (
     <section className="space-y-5">
@@ -146,6 +200,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
         </p>
       </div>
 
+      {/* Same filter shell pattern as main Dashboard */}
       <div className={listFilterCardClass}>
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
           {RANGE_PILLS.map((pill) => (
@@ -166,6 +221,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
             </Button>
           ))}
         </div>
+
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
           <div className="w-full min-w-[10rem] sm:w-44">
             <FilterLabel>From</FilterLabel>
@@ -191,11 +247,32 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
               }}
             />
           </div>
+          <div className="w-full min-w-[12rem] flex-1 sm:max-w-xs">
+            <FilterLabel>Prayer</FilterLabel>
+            <Select
+              value={prayerFilter || SELECT_ALL}
+              onValueChange={(value) =>
+                setPrayerFilter(value === SELECT_ALL ? "" : value)
+              }
+            >
+              <SelectTrigger aria-label="Filter namaz analytics by prayer">
+                <SelectValue placeholder="All prayers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All prayers</SelectItem>
+                {NAMAZ_PRAYERS.map((prayer) => (
+                  <SelectItem key={prayer} value={prayer}>
+                    {NAMAZ_PRAYER_META[prayer].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Scopes KPIs, charts, and tables below.
+            </p>
+          </div>
           {hasActiveFilters ? (
-            <ClearFiltersButton
-              onClick={resetFilters}
-              label="Clear filters"
-            />
+            <ClearFiltersButton onClick={resetFilters} />
           ) : null}
         </div>
       </div>
@@ -209,80 +286,156 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
           {error}
         </div>
-      ) : data ? (
+      ) : data && filteredKpis ? (
         <>
+          {prayerName ? (
+            <p className="text-xs">
+              <span className="inline-flex items-center rounded-full bg-teal-500/15 px-2.5 py-0.5 font-semibold text-teal-800 dark:text-teal-200">
+                Filtered · {prayerName}
+              </span>
+            </p>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <AnalyticsKpiCard
               label="On time"
-              sub="Fard logged same day"
-              value={data.kpis.prayedInRange}
+              sub={
+                prayerName
+                  ? `Fard on time · ${prayerName}`
+                  : "Fard logged same day"
+              }
+              value={filteredKpis.prayedInRange}
               icon={CheckCircle2}
               theme={KPI_THEMES.today}
             />
             <AnalyticsKpiCard
               label="Kaza"
-              sub="Made-up past prayers"
-              value={data.kpis.kazaInRange}
+              sub={
+                prayerName
+                  ? `Made-up · ${prayerName}`
+                  : "Made-up past prayers"
+              }
+              value={filteredKpis.kazaInRange}
               icon={History}
               theme={KPI_THEMES.week}
             />
             <AnalyticsKpiCard
               label="Still missed"
-              sub="Awaiting Kaza"
-              value={data.kpis.missedInRange}
+              sub={prayerName ? `Awaiting Kaza · ${prayerName}` : "Awaiting Kaza"}
+              value={filteredKpis.missedInRange}
               icon={Target}
               theme={KPI_THEMES.target}
             />
             <AnalyticsKpiCard
               label="Completion"
               sub="Past days filled"
-              value={`${data.kpis.completionPct}%`}
+              value={`${filteredKpis.completionPct}%`}
               icon={CalendarRange}
               theme={KPI_THEMES.month}
             />
             <AnalyticsKpiCard
               label="Streak"
               sub="Full days in a row"
-              value={data.kpis.streak}
+              value={filteredKpis.streak}
               icon={Flame}
               theme={KPI_THEMES.year}
             />
             <AnalyticsKpiCard
               label="Sunnah / Tasbeeh"
-              sub={`${data.kpis.sunnahInRange} sunnah · ${data.kpis.tasbeehInRange} tasbeeh`}
-              value={data.kpis.sunnahInRange + data.kpis.tasbeehInRange}
+              sub={`${filteredKpis.sunnahInRange} sunnah · ${filteredKpis.tasbeehInRange} tasbeeh`}
+              value={
+                filteredKpis.sunnahInRange + filteredKpis.tasbeehInRange
+              }
               icon={Sparkles}
               theme={KPI_THEMES.range}
             />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            <TrendChartShell title="Daily on-time / kaza / missed" chartHeight={280}>
+            <TrendChartShell
+              title={
+                prayerName
+                  ? `Daily on-time / kaza / missed · ${prayerName}`
+                  : "Daily on-time / kaza / missed"
+              }
+              chartHeight={280}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.daily}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} />
-                  <XAxis dataKey="dayLabel" tick={CHART_TICK} interval="preserveStartEnd" />
-                  <YAxis allowDecimals={false} tick={CHART_TICK} domain={[0, 5]} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={CHART_GRID_STROKE}
+                  />
+                  <XAxis
+                    dataKey="dayLabel"
+                    tick={CHART_TICK}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={CHART_TICK}
+                    domain={[0, prayerFilter ? 1 : 5]}
+                  />
                   <Tooltip {...CHART_TOOLTIP_STYLE} />
                   <Legend />
-                  <Bar dataKey="prayed" name="On time" fill="#059669" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="kaza" name="Kaza" fill="#d97706" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="missed" name="Missed" fill="#e11d48" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="prayed"
+                    name="On time"
+                    fill="#059669"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="kaza"
+                    name="Kaza"
+                    fill="#d97706"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="missed"
+                    name="Missed"
+                    fill="#e11d48"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </TrendChartShell>
 
-            <TrendChartShell title="By prayer (range)" chartHeight={280}>
+            <TrendChartShell
+              title={
+                prayerName
+                  ? `By prayer · ${prayerName}`
+                  : "By prayer (range)"
+              }
+              chartHeight={280}
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.byPrayer}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} />
+                <BarChart data={filteredByPrayer}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={CHART_GRID_STROKE}
+                  />
                   <XAxis dataKey="label" tick={CHART_TICK} />
                   <YAxis allowDecimals={false} tick={CHART_TICK} />
                   <Tooltip {...CHART_TOOLTIP_STYLE} />
                   <Legend />
-                  <Bar dataKey="prayed" name="On time" fill="#0d9488" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="kaza" name="Kaza" fill="#d97706" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="missed" name="Still missed" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="prayed"
+                    name="On time"
+                    fill="#0d9488"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="kaza"
+                    name="Kaza"
+                    fill="#d97706"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="missed"
+                    name="Still missed"
+                    fill="#f43f5e"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </TrendChartShell>
@@ -291,7 +444,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
           <div className="grid gap-4 xl:grid-cols-2">
             <AppDataTable
               title="Outstanding misses (Kaza queue)"
-              totalCount={data.missed.length}
+              totalCount={filteredMissed.length}
             >
               <thead>
                 <tr className={tableHeadRowClass}>
@@ -301,7 +454,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {data.missed.length === 0 ? (
+                {filteredMissed.length === 0 ? (
                   <tr>
                     <td
                       colSpan={3}
@@ -311,7 +464,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                     </td>
                   </tr>
                 ) : (
-                  data.missed.map((m) => (
+                  filteredMissed.map((m) => (
                     <tr
                       key={`${m.date}-${m.prayer}`}
                       className={tableBodyRowClass}
@@ -335,7 +488,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
 
             <AppDataTable
               title="Completed via Kaza"
-              totalCount={data.kazaLog.length}
+              totalCount={filteredKazaLog.length}
             >
               <thead>
                 <tr className={tableHeadRowClass}>
@@ -345,7 +498,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {data.kazaLog.length === 0 ? (
+                {filteredKazaLog.length === 0 ? (
                   <tr>
                     <td
                       colSpan={3}
@@ -355,7 +508,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                     </td>
                   </tr>
                 ) : (
-                  data.kazaLog.map((m) => (
+                  filteredKazaLog.map((m) => (
                     <tr
                       key={`${m.date}-${m.prayer}-kaza`}
                       className={tableBodyRowClass}

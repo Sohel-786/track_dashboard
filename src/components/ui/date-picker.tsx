@@ -114,6 +114,38 @@ export function DatePicker({
           }}
           initialFocus
         />
+        <div className="flex items-center justify-between gap-2 border-t border-border p-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => {
+              const today = new Date();
+              today.setHours(12, 0, 0, 0);
+              if (minDate && today < minDate) return;
+              if (maxDate && today > maxDate) return;
+              handleSelect(today);
+            }}
+          >
+            Today
+          </Button>
+          {clearable ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => {
+                onDateChange?.(undefined);
+                onChange?.(undefined);
+                setOpen(false);
+              }}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
       </PopoverContent>
     </Popover>
   );

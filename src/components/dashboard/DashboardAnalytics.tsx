@@ -554,7 +554,7 @@ export default function DashboardAnalytics() {
                 ))}
               </SelectContent>
             </Select>
-                   </div>
+          </div>
           {hasActiveFilters ? (
             <ClearFiltersButton onClick={resetFilters} />
           ) : null}
