@@ -227,6 +227,7 @@ export type NamazAnalyticsResponse = {
     to: string;
   };
   trackingStart?: string;
+  prayerFilter?: NamazPrayerKey | null;
   kpis: {
     prayedInRange: number;
     kazaInRange: number;
@@ -235,8 +236,11 @@ export type NamazAnalyticsResponse = {
     completionPct: number;
     streak: number;
     sunnahInRange: number;
+    sunnahWithoutInRange: number;
     tasbeehInRange: number;
+    tasbeehWithoutInRange: number;
     zamaatInRange: number;
+    zamaatWithoutInRange: number;
     finalizedExpected: number;
   };
   byPrayer: Array<{
@@ -245,18 +249,34 @@ export type NamazAnalyticsResponse = {
     prayed: number;
     kaza: number;
     sunnah: number;
+    sunnahWithout: number;
     tasbeeh: number;
+    tasbeehWithout: number;
     zamaat: number;
+    zamaatWithout: number;
     missed: number;
   }>;
   daily: Array<{
     date: string;
     dayLabel: string;
+    weekday: string;
     prayed: number;
     kaza: number;
     missed: number;
     pending: number;
+    completed: number;
+    sunnahWith: number;
+    sunnahWithout: number;
+    tasbeehWith: number;
+    tasbeehWithout: number;
+    zamaatWith: number;
+    zamaatWithout: number;
   }>;
+  extrasShare: {
+    sunnah: { with: number; without: number };
+    tasbeeh: { with: number; without: number };
+    zamaat: { with: number; without: number };
+  };
   missed: NamazMissedItem[];
   kazaLog: Array<{
     date: string;
@@ -264,5 +284,8 @@ export type NamazAnalyticsResponse = {
     prayer: NamazPrayerKey;
     label: string;
     kazaAt: string | null;
+    sunnah: boolean;
+    tasbeeh: boolean;
+    zamaat: boolean;
   }>;
 };

@@ -193,15 +193,22 @@ export function buildNamazAnalytics(input: {
   now?: Date;
   trackingStart?: string;
   madhabId?: NamazMadhabId;
+  /** When set, all KPIs / daily / extras scope to this prayer only. */
+  prayerFilter?: NamazPrayer | null;
 }) {
   const now = input.now ?? new Date();
   const today = getNamazTodayIso(now);
   const trackingStart = input.trackingStart ?? getTrackingStartDate();
   const madhabId = input.madhabId ?? DEFAULT_NAMAZ_MADHAB;
+  const prayerFilter = input.prayerFilter ?? null;
   const from = input.from < trackingStart ? trackingStart : input.from;
   const to = input.to < trackingStart ? trackingStart : input.to;
 
-  const missed = collectMissed(
+  const prayersInScope: NamazPrayer[] = prayerFilter
+    ? [prayerFilter]
+    : [...NAMAZ_PRAYERS];
+
+  const allMissed = collectMissed(
     from,
     to,
     input.logs,
@@ -209,22 +216,32 @@ export function buildNamazAnalytics(input: {
     trackingStart,
     madhabId
   );
+  const missed = prayerFilter
+    ? allMissed.filter((m) => m.prayer === prayerFilter)
+    : allMissed;
+
   const days = eachDayIso(from, to);
   const pastDays = days.filter((d) => d < today && d >= trackingStart);
-  const finalizedExpected = pastDays.length * NAMAZ_PRAYERS.length;
+  const finalizedExpected = pastDays.length * prayersInScope.length;
 
   const inRange = (date: string) =>
     date >= from && date <= to && date >= trackingStart;
 
-  const prayedOnTime = input.logs.filter(
-    (l) => l.prayed && !l.isKaza && inRange(l.date)
+  const matchesPrayer = (prayer: string) =>
+    !prayerFilter || prayer === prayerFilter;
+
+  const completedLogs = input.logs.filter(
+    (l) => l.prayed && inRange(l.date) && matchesPrayer(l.prayer)
   );
-  const prayedKaza = input.logs.filter(
-    (l) => l.prayed && l.isKaza && inRange(l.date)
-  );
-  const prayedInRange = input.logs.filter(
-    (l) => l.prayed && inRange(l.date)
-  );
+  const prayedOnTime = completedLogs.filter((l) => !l.isKaza);
+  const prayedKaza = completedLogs.filter((l) => l.isKaza);
+
+  const sunnahWith = completedLogs.filter((l) => l.sunnah).length;
+  const sunnahWithout = completedLogs.filter((l) => !l.sunnah).length;
+  const tasbeehWith = completedLogs.filter((l) => l.tasbeeh).length;
+  const tasbeehWithout = completedLogs.filter((l) => !l.tasbeeh).length;
+  const zamaatWith = completedLogs.filter((l) => l.zamaat).length;
+  const zamaatWithout = completedLogs.filter((l) => !l.zamaat).length;
 
   const byPrayer = NAMAZ_PRAYERS.map((prayer) => {
     const rows = input.logs.filter(
@@ -236,13 +253,19 @@ export function buildNamazAnalytics(input: {
       prayed: rows.filter((l) => !l.isKaza).length,
       kaza: rows.filter((l) => l.isKaza).length,
       sunnah: rows.filter((l) => l.sunnah).length,
+      sunnahWithout: rows.filter((l) => !l.sunnah).length,
       tasbeeh: rows.filter((l) => l.tasbeeh).length,
+      tasbeehWithout: rows.filter((l) => !l.tasbeeh).length,
       zamaat: rows.filter((l) => l.zamaat).length,
-      missed: missed.filter((m) => m.prayer === prayer).length,
+      zamaatWithout: rows.filter((l) => !l.zamaat).length,
+      missed: allMissed.filter((m) => m.prayer === prayer).length,
     };
   });
 
   const daily = days.map((date) => {
+    const dayLogs = input.logs.filter(
+      (l) => l.date === date && matchesPrayer(l.prayer)
+    );
     const status = buildDayStatus(
       date,
       input.logs.filter((l) => l.date === date),
@@ -250,13 +273,43 @@ export function buildNamazAnalytics(input: {
       trackingStart,
       madhabId
     );
+
+    const completed = dayLogs.filter((l) => l.prayed);
+    const prayed = completed.filter((l) => !l.isKaza).length;
+    const kaza = completed.filter((l) => l.isKaza).length;
+
+    let missedCount: number;
+    let pendingCount: number;
+    if (prayerFilter) {
+      const slot = status.prayers.find((p) => p.prayer === prayerFilter);
+      missedCount = slot?.status === "missed" ? 1 : 0;
+      pendingCount =
+        slot &&
+        (slot.status === "pending" ||
+          slot.status === "upcoming" ||
+          slot.status === "open")
+          ? 1
+          : 0;
+    } else {
+      missedCount = status.missedCount;
+      pendingCount = status.pendingCount;
+    }
+
     return {
       date,
       dayLabel: format(parseISO(`${date}T00:00:00`), "MMM d"),
-      prayed: status.prayedCount,
-      kaza: status.kazaCount,
-      missed: status.missedCount,
-      pending: status.pendingCount,
+      weekday: format(parseISO(`${date}T00:00:00`), "EEE"),
+      prayed,
+      kaza,
+      missed: missedCount,
+      pending: pendingCount,
+      completed: completed.length,
+      sunnahWith: completed.filter((l) => l.sunnah).length,
+      sunnahWithout: completed.filter((l) => !l.sunnah).length,
+      tasbeehWith: completed.filter((l) => l.tasbeeh).length,
+      tasbeehWithout: completed.filter((l) => !l.tasbeeh).length,
+      zamaatWith: completed.filter((l) => Boolean(l.zamaat)).length,
+      zamaatWithout: completed.filter((l) => !l.zamaat).length,
     };
   });
 
@@ -271,6 +324,9 @@ export function buildNamazAnalytics(input: {
         : l.prayedAt
           ? new Date(l.prayedAt).toISOString()
           : null,
+      sunnah: Boolean(l.sunnah),
+      tasbeeh: Boolean(l.tasbeeh),
+      zamaat: Boolean(l.zamaat),
     }))
     .sort(
       (a, b) => b.date.localeCompare(a.date) || a.prayer.localeCompare(b.prayer)
@@ -294,7 +350,11 @@ export function buildNamazAnalytics(input: {
   }
 
   const completedPast = input.logs.filter(
-    (l) => l.prayed && l.date < today && inRange(l.date)
+    (l) =>
+      l.prayed &&
+      l.date < today &&
+      inRange(l.date) &&
+      matchesPrayer(l.prayer)
   ).length;
 
   const completionPct =
@@ -304,26 +364,29 @@ export function buildNamazAnalytics(input: {
 
   return {
     trackingStart,
+    prayerFilter,
     kpis: {
       prayedInRange: prayedOnTime.length,
       kazaInRange: prayedKaza.length,
-      completedInRange: prayedInRange.length,
+      completedInRange: completedLogs.length,
       missedInRange: missed.length,
       completionPct,
       streak,
-      sunnahInRange: input.logs.filter(
-        (l) => l.prayed && l.sunnah && inRange(l.date)
-      ).length,
-      tasbeehInRange: input.logs.filter(
-        (l) => l.prayed && l.tasbeeh && inRange(l.date)
-      ).length,
-      zamaatInRange: input.logs.filter(
-        (l) => l.prayed && l.zamaat && inRange(l.date)
-      ).length,
+      sunnahInRange: sunnahWith,
+      sunnahWithoutInRange: sunnahWithout,
+      tasbeehInRange: tasbeehWith,
+      tasbeehWithoutInRange: tasbeehWithout,
+      zamaatInRange: zamaatWith,
+      zamaatWithoutInRange: zamaatWithout,
       finalizedExpected,
     },
     byPrayer,
     daily,
+    extrasShare: {
+      sunnah: { with: sunnahWith, without: sunnahWithout },
+      tasbeeh: { with: tasbeehWith, without: tasbeehWithout },
+      zamaat: { with: zamaatWith, without: zamaatWithout },
+    },
     missed: missed.slice().reverse(),
     kazaLog,
   };

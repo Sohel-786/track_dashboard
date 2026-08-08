@@ -8,6 +8,7 @@ import {
   resolveAnalyticsQuickRange,
   type AnalyticsQuickRange,
 } from "@/lib/date-ranges";
+import { isNamazPrayer } from "@/lib/namaz";
 import { buildNamazAnalytics } from "@/lib/namaz-analytics";
 import { getUserNamazMadhab } from "@/lib/namaz-user";
 
@@ -35,6 +36,9 @@ export async function GET(request: NextRequest) {
     if (customFrom && !isValidIsoDate(customFrom)) return fail("Invalid from date");
     if (customTo && !isValidIsoDate(customTo)) return fail("Invalid to date");
 
+    const prayerParam = searchParams.get("prayer") || "";
+    const prayerFilter = isNamazPrayer(prayerParam) ? prayerParam : null;
+
     const { from, to } = resolveAnalyticsQuickRange(quick, customFrom, customTo);
     if (from > to) return fail("from must be before to");
 
@@ -55,41 +59,44 @@ export async function GET(request: NextRequest) {
       .limit(5 * 400)
       .lean();
 
+    const mapLog = (l: {
+      date: string;
+      prayer: string;
+      prayed: boolean;
+      sunnah: boolean;
+      tasbeeh: boolean;
+      zamaat?: boolean;
+      isKaza?: boolean;
+      prayedAt?: Date | null;
+      kazaAt?: Date | null;
+    }) => ({
+      date: l.date,
+      prayer: l.prayer,
+      prayed: l.prayed,
+      sunnah: l.sunnah,
+      tasbeeh: l.tasbeeh,
+      zamaat: Boolean(l.zamaat),
+      isKaza: Boolean(l.isKaza),
+      prayedAt: l.prayedAt,
+      kazaAt: l.kazaAt,
+    });
+
     const analytics = buildNamazAnalytics({
       from,
       to,
       now: new Date(),
       madhabId,
-      logs: logs.map((l) => ({
-        date: l.date,
-        prayer: l.prayer,
-        prayed: l.prayed,
-        sunnah: l.sunnah,
-        tasbeeh: l.tasbeeh,
-        zamaat: Boolean(l.zamaat),
-        isKaza: Boolean(l.isKaza),
-        prayedAt: l.prayedAt,
-        kazaAt: l.kazaAt,
-      })),
+      prayerFilter,
+      logs: logs.map(mapLog),
     });
 
-    // Recompute streak with wider history
     const withHistory = buildNamazAnalytics({
       from,
       to,
       now: new Date(),
       madhabId,
-      logs: streakLogs.map((l) => ({
-        date: l.date,
-        prayer: l.prayer,
-        prayed: l.prayed,
-        sunnah: l.sunnah,
-        tasbeeh: l.tasbeeh,
-        zamaat: Boolean(l.zamaat),
-        isKaza: Boolean(l.isKaza),
-        prayedAt: l.prayedAt,
-        kazaAt: l.kazaAt,
-      })),
+      prayerFilter,
+      logs: streakLogs.map(mapLog),
     });
 
     return ok({
