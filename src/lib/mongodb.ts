@@ -1,37 +1,51 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
+import { ensureSeedAdmin } from "@/lib/seed";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
+  throw new Error(
+    "Please define the MONGODB_URI environment variable inside .env.local"
+  );
 }
 
-/**
- * Global is used here to maintain a cached connection across hot reloads
- * in development. This prevents connections growing exponentially
- * during API Route usage.
- */
-let cached = (global as any).mongoose;
+type MongooseCache = {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+};
 
-if (!cached) {
-  cached = (global as any).mongoose = { conn: null, promise: null };
+declare global {
+  // eslint-disable-next-line no-var
+  var mongooseCache: MongooseCache | undefined;
 }
+
+const cached: MongooseCache = global.mongooseCache ?? {
+  conn: null,
+  promise: null,
+};
+
+global.mongooseCache = cached;
 
 async function connectDB() {
   if (cached.conn) {
+    await ensureSeedAdmin();
     return cached.conn;
   }
 
   if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-    };
-
-    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {
-      return mongoose;
-    });
+    cached.promise = mongoose
+      .connect(MONGODB_URI!, { bufferCommands: false })
+      .then((m) => m);
   }
-  cached.conn = await cached.promise;
+
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
+  }
+
+  await ensureSeedAdmin();
   return cached.conn;
 }
 

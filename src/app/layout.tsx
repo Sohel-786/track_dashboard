@@ -1,9 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
 import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { AuthProvider } from "@/components/AuthProvider";
+import { AppShell } from "@/components/layout/AppShell";
+import { PwaRegister } from "@/components/PwaRegister";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,12 +18,33 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TraceDash | Advanced Analytical Traceability Dashboard",
-  description: "The professional standard for managing analytical assets, spreadsheets, and visual reports in one centralized repository.",
-  icons: {
-    icon: '/icon.svg',
-    apple: '/icon.svg',
+  title: "TrackDash | Personal Progress Tracker",
+  description:
+    "Track daily category progress with targets, KPIs, and progressive analytics.",
+  applicationName: "TrackDash",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "TrackDash",
   },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  manifest: "/manifest.webmanifest",
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0f766e" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+  ],
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -40,15 +63,13 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Toaster position="top-right" />
-          <Navbar />
-          <main className="min-h-[calc(100vh-64px)] overflow-x-hidden pt-4">
-            {children}
-          </main>
+          <AuthProvider>
+            <Toaster position="top-right" />
+            <AppShell>{children}</AppShell>
+            <PwaRegister />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
   );
 }
-
-
