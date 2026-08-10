@@ -37,7 +37,7 @@ export function getTrackingStartDate(): string {
   if (raw && isValidIsoDate(raw)) {
     return raw > today ? today : raw;
   }
-  return today;
+  return "2020-01-01";
 }
 
 /** Raise `from`/`to` so the window never precedes go-live. */

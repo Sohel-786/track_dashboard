@@ -141,8 +141,8 @@ function FlagPill({ on, label }: { on: boolean; label: string }) {
 }
 
 export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
-  const baseline = resolveAnalyticsQuickRange("today");
-  const [quick, setQuick] = useState<AnalyticsQuickRange>("today");
+  const baseline = resolveAnalyticsQuickRange("week");
+  const [quick, setQuick] = useState<AnalyticsQuickRange>("week");
   const [from, setFrom] = useState(baseline.from);
   const [to, setTo] = useState(baseline.to);
   const [prayerFilter, setPrayerFilter] = useState("");
@@ -155,7 +155,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
   const hasActiveFilters =
     Boolean(prayerFilter) ||
     focus !== "overview" ||
-    hasActiveAnalyticsRangeFilter(quick, from, to, "today");
+    hasActiveAnalyticsRangeFilter(quick, from, to, "week");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -190,8 +190,8 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
   }
 
   function resetFilters() {
-    const range = resolveAnalyticsQuickRange("today");
-    setQuick("today");
+    const range = resolveAnalyticsQuickRange("week");
+    setQuick("week");
     setFrom(range.from);
     setTo(range.to);
     setPrayerFilter("");
@@ -296,7 +296,6 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
             <FilterLabel>From</FilterLabel>
             <DatePicker
               value={from}
-              minIso={trackingStart}
               onChange={(iso) => {
                 if (!iso) return;
                 setQuick("custom");
@@ -308,7 +307,6 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
             <FilterLabel>To</FilterLabel>
             <DatePicker
               value={to}
-              minIso={trackingStart}
               onChange={(iso) => {
                 if (!iso) return;
                 setQuick("custom");

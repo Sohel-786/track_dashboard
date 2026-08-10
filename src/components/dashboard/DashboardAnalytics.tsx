@@ -287,8 +287,8 @@ function CategoryTargetBarChart({
 }
 
 export default function DashboardAnalytics() {
-  const baselineRange = resolveAnalyticsQuickRange("today");
-  const [quick, setQuick] = useState<AnalyticsQuickRange>("today");
+  const baselineRange = resolveAnalyticsQuickRange("week");
+  const [quick, setQuick] = useState<AnalyticsQuickRange>("week");
   const [from, setFrom] = useState(baselineRange.from);
   const [to, setTo] = useState(baselineRange.to);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -309,7 +309,7 @@ export default function DashboardAnalytics() {
   const hasActiveFilters = useMemo(
     () =>
       Boolean(filterCategoryId) ||
-      hasActiveAnalyticsRangeFilter(quick, from, to, "today"),
+      hasActiveAnalyticsRangeFilter(quick, from, to, "week"),
     [filterCategoryId, quick, from, to]
   );
 
@@ -406,8 +406,8 @@ export default function DashboardAnalytics() {
   }
 
   function resetFilters() {
-    const range = resolveAnalyticsQuickRange("today");
-    setQuick("today");
+    const range = resolveAnalyticsQuickRange("week");
+    setQuick("week");
     setFrom(range.from);
     setTo(range.to);
     setFilterCategoryId("");
@@ -514,7 +514,6 @@ export default function DashboardAnalytics() {
             <FilterLabel>From</FilterLabel>
             <DatePicker
               value={from}
-              minIso={trackingStart}
               onChange={(iso) => {
                 if (!iso) return;
                 setQuick("custom");
@@ -526,7 +525,6 @@ export default function DashboardAnalytics() {
             <FilterLabel>To</FilterLabel>
             <DatePicker
               value={to}
-              minIso={trackingStart}
               onChange={(iso) => {
                 if (!iso) return;
                 setQuick("custom");
