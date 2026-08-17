@@ -5,12 +5,20 @@ import User from "@/models/User";
 import { authErrorResponse, requireAdmin } from "@/lib/auth";
 import { hashPassword } from "@/lib/passwords";
 import { fail, isObjectId, ok } from "@/lib/api-helpers";
+import { todayIso } from "@/lib/date-ranges";
+import { resolveTrackingStart } from "@/lib/user-settings";
 
 const updateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   password: z.string().min(4).max(128).optional(),
   role: z.enum(["admin", "user"]).optional(),
   isActive: z.boolean().optional(),
+  /** `null` clears the override and falls back to the account creation day. */
+  trackingStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -49,6 +57,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (parsed.data.password) {
       user.passwordHash = await hashPassword(parsed.data.password);
     }
+    if (parsed.data.trackingStartDate !== undefined) {
+      if (parsed.data.trackingStartDate && parsed.data.trackingStartDate > todayIso()) {
+        return fail("Tracking start cannot be in the future");
+      }
+      user.trackingStartDate = parsed.data.trackingStartDate;
+    }
 
     await user.save();
 
@@ -58,6 +72,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       name: user.name,
       role: user.role,
       isActive: user.isActive,
+      ...resolveTrackingStart(user),
     });
   } catch (error) {
     return authErrorResponse(error);

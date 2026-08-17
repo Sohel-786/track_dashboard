@@ -5,7 +5,8 @@ import Entry from "@/models/Entry";
 import Category from "@/models/Category";
 import { authErrorResponse, requireSession } from "@/lib/auth";
 import { fail, isObjectId, ok } from "@/lib/api-helpers";
-import { isValidIsoDate } from "@/lib/date-ranges";
+import { isValidIsoDate, trackingStartLabel } from "@/lib/date-ranges";
+import { getUserTrackingStart } from "@/lib/user-settings";
 
 const updateSchema = z.object({
   value: z.number().min(0).optional(),
@@ -56,6 +57,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (parsed.data.date) {
       if (!isValidIsoDate(parsed.data.date)) {
         return fail("Invalid date format (YYYY-MM-DD)");
+      }
+      const trackingStart = await getUserTrackingStart(session.sub);
+      if (parsed.data.date < trackingStart) {
+        return fail(
+          `Tracking starts on ${trackingStartLabel(trackingStart)}. Earlier days cannot be logged.`
+        );
       }
       entry.date = parsed.data.date;
     }

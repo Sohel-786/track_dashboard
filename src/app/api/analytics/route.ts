@@ -19,6 +19,7 @@ import {
   deltaPct,
   previousRange,
 } from "@/lib/analytics";
+import { getUserTrackingStart } from "@/lib/user-settings";
 
 const QUICK_RANGES: AnalyticsQuickRange[] = [
   "today",
@@ -46,7 +47,15 @@ export async function GET(request: NextRequest) {
     if (customFrom && !isValidIsoDate(customFrom)) return fail("Invalid from date");
     if (customTo && !isValidIsoDate(customTo)) return fail("Invalid to date");
 
-    const { from, to } = resolveAnalyticsQuickRange(quick, customFrom, customTo);
+    // Everything is clamped to the account's own start so a fresh install
+    // never charts a run of empty days from before the user existed.
+    const trackingStart = await getUserTrackingStart(session.sub);
+    const { from, to } = resolveAnalyticsQuickRange(
+      quick,
+      customFrom,
+      customTo,
+      trackingStart
+    );
     if (from > to) return fail("from must be before to");
 
     const categoryId = searchParams.get("categoryId");
@@ -64,7 +73,18 @@ export async function GET(request: NextRequest) {
 
     const categoryIds = categories.map((c) => c._id);
 
-    const prev = previousRange(from, to);
+    // A comparison window that predates the account has nothing to compare
+    // against — collapse it so deltas read 0% rather than a fake +100%.
+    const rawPrev = previousRange(from, to);
+    const prev =
+      rawPrev.to < trackingStart
+        ? { from: trackingStart, to: trackingStart }
+        : {
+            from:
+              rawPrev.from < trackingStart ? trackingStart : rawPrev.from,
+            to: rawPrev.to,
+          };
+    const prevIsComparable = rawPrev.from >= trackingStart;
 
     const [rangeEntries, yearEntries, prevEntries] = await Promise.all([
       Entry.find({
@@ -76,15 +96,18 @@ export async function GET(request: NextRequest) {
         userId: session.sub,
         categoryId: { $in: categoryIds },
         date: {
-          $gte: resolveAnalyticsQuickRange("year").from,
+          $gte: resolveAnalyticsQuickRange("year", undefined, undefined, trackingStart)
+            .from,
           $lte: todayIso(),
         },
       }).lean(),
-      Entry.find({
-        userId: session.sub,
-        categoryId: { $in: categoryIds },
-        date: { $gte: prev.from, $lte: prev.to },
-      }).lean(),
+      prevIsComparable
+        ? Entry.find({
+            userId: session.sub,
+            categoryId: { $in: categoryIds },
+            date: { $gte: prev.from, $lte: prev.to },
+          }).lean()
+        : Promise.resolve([]),
     ]);
 
     const today = todayIso();
@@ -94,7 +117,8 @@ export async function GET(request: NextRequest) {
       categories,
       today,
       from,
-      to
+      to,
+      trackingStart
     );
     const byCategory = buildCategoryProgress(categories, rangeEntries, from, to);
     const trendDay = buildTrend(rangeEntries, from, to, "day");
@@ -131,6 +155,7 @@ export async function GET(request: NextRequest) {
     return ok({
       appliedRange: { quick, from, to },
       previousRange: prev,
+      trackingStart,
       kpis: {
         ...kpis,
         /** Every (category, day) pair in range that met its daily target. */
@@ -141,10 +166,18 @@ export async function GET(request: NextRequest) {
         activeDays: dailyTargetHits.filter((d) => d.entryCount > 0).length,
         rangeDays: dailyTargetHits.length,
       },
+      /** All zero when the comparison window predates the account. */
       deltas: {
-        rangeTotal: deltaPct(kpis.rangeTotal, prevRangeTotal),
-        dayTargetsHit: deltaPct(targetsHit, prevTargetsHit),
-        entryCount: deltaPct(kpis.entryCount, prevEntries.length),
+        comparable: prevIsComparable,
+        rangeTotal: prevIsComparable
+          ? deltaPct(kpis.rangeTotal, prevRangeTotal)
+          : 0,
+        dayTargetsHit: prevIsComparable
+          ? deltaPct(targetsHit, prevTargetsHit)
+          : 0,
+        entryCount: prevIsComparable
+          ? deltaPct(kpis.entryCount, prevEntries.length)
+          : 0,
       },
       byCategory,
       trends: {

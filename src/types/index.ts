@@ -47,6 +47,9 @@ export type DaySummary = {
 
 export type EntriesResponse = {
   date: string;
+  /** First day this account tracks; earlier days hold no data and reject writes. */
+  trackingStart: string;
+  beforeTrackingStart: boolean;
   entries: Entry[];
   daySummaries: DaySummary[];
 };
@@ -90,6 +93,8 @@ export type AnalyticsResponse = {
   };
   /** Equally long window immediately before the applied range. */
   previousRange: { from: string; to: string };
+  /** First day this account tracks — every range is clamped to it. */
+  trackingStart: string;
   kpis: {
     todayTotal: number;
     weekTotal: number;
@@ -106,8 +111,10 @@ export type AnalyticsResponse = {
     activeDays: number;
     rangeDays: number;
   };
-  /** Percentage change vs `previousRange`. */
+  /** Percentage change vs `previousRange`; zeroed when not comparable. */
   deltas: {
+    /** False when the previous window predates the account. */
+    comparable: boolean;
     rangeTotal: number;
     dayTargetsHit: number;
     entryCount: number;
@@ -238,6 +245,20 @@ export type NamazDayStatus = {
   graceCount: number;
   pendingCount: number;
   schedule?: NamazScheduleSnapshot;
+};
+
+export type AdminUser = {
+  id: string;
+  username: string;
+  name: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt?: string;
+  /** Explicit override, or null when derived from the account creation day. */
+  trackingStartDate: string | null;
+  /** Resolved first tracked day, after applying the deployment-wide floor. */
+  trackingStart: string;
+  trackingStartIsImplicit: boolean;
 };
 
 export type NamazMissedItem = {

@@ -5,12 +5,18 @@ import User from "@/models/User";
 import { authErrorResponse, requireAdmin } from "@/lib/auth";
 import { hashPassword } from "@/lib/passwords";
 import { fail, normalizeUsername, ok } from "@/lib/api-helpers";
+import { resolveTrackingStart } from "@/lib/user-settings";
 
 const createSchema = z.object({
   username: z.string().min(3).max(64),
   password: z.string().min(4).max(128),
   name: z.string().min(1).max(120),
   role: z.enum(["admin", "user"]).optional().default("user"),
+  /** Optional go-live override; defaults to the account creation day. */
+  trackingStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 export async function GET() {
@@ -30,6 +36,8 @@ export async function GET() {
         role: u.role,
         isActive: u.isActive,
         createdAt: u.createdAt,
+        trackingStartDate: u.trackingStartDate ?? null,
+        ...resolveTrackingStart(u),
       }))
     );
   } catch (error) {
@@ -60,6 +68,7 @@ export async function POST(request: NextRequest) {
       name: parsed.data.name.trim(),
       role: parsed.data.role,
       isActive: true,
+      trackingStartDate: parsed.data.trackingStartDate ?? null,
     });
 
     return ok(
@@ -69,6 +78,8 @@ export async function POST(request: NextRequest) {
         name: user.name,
         role: user.role,
         isActive: user.isActive,
+        trackingStartDate: user.trackingStartDate ?? null,
+        ...resolveTrackingStart(user),
       },
       { status: 201 }
     );

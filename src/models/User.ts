@@ -26,6 +26,19 @@ const UserSchema = new Schema(
       enum: ["hanafi", "shafi", "maliki", "hanbali"],
       default: "hanafi",
     },
+    /**
+     * First calendar day (YYYY-MM-DD) this account tracks. Nothing before it is
+     * ever counted as a missed prayer or charted as a zero day.
+     *
+     * Null means "the day this account was created", which is the correct
+     * default — a new user must never inherit a backlog of days from before
+     * they existed.
+     */
+    trackingStartDate: {
+      type: String,
+      match: /^\d{4}-\d{2}-\d{2}$/,
+      default: null,
+    },
   },
   { timestamps: true }
 );

@@ -199,9 +199,10 @@ export function computeKpis(
   categories: Pick<ICategory, "_id" | "name" | "target">[],
   today: string,
   rangeFrom: string,
-  rangeTo: string
+  rangeTo: string,
+  /** The account's own start — week/month/year windows never precede it. */
+  trackingStart = getTrackingStartDate()
 ): AnalyticsKpis {
-  const trackingStart = getTrackingStartDate();
   const clampFrom = (from: string) =>
     from < trackingStart ? trackingStart : from;
 

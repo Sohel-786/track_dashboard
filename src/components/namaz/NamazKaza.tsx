@@ -18,7 +18,13 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { format, parseISO } from "date-fns";
+import {
+  format,
+  parseISO,
+  startOfMonth,
+  startOfYear,
+  subDays,
+} from "date-fns";
 import { api, ApiError } from "@/lib/client-api";
 import { trackingStartLabel } from "@/lib/date-ranges";
 import type {
@@ -50,6 +56,56 @@ type Extras = { sunnah: boolean; tasbeeh: boolean; zamaat: boolean };
 const NO_EXTRAS: Extras = { sunnah: false, tasbeeh: false, zamaat: false };
 
 type SortOrder = "newest" | "oldest";
+
+/**
+ * Quick ranges for the Kaza queue. Deliberately past-oriented: today's closed
+ * windows are still inside their on-time grace and live on the Today tab, so a
+ * "Today" preset here would always be empty.
+ */
+type KazaRange =
+  | "all"
+  | "yesterday"
+  | "last7"
+  | "last30"
+  | "month"
+  | "year"
+  | "custom";
+
+const KAZA_RANGE_PILLS: { key: KazaRange; label: string }[] = [
+  { key: "all", label: "All time" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "last7", label: "Last 7 days" },
+  { key: "last30", label: "Last 30 days" },
+  { key: "month", label: "This month" },
+  { key: "year", label: "This year" },
+  { key: "custom", label: "Custom" },
+];
+
+/** Resolve a preset into an inclusive [from, to] window of *past* days. */
+function resolveKazaRange(
+  key: KazaRange,
+  today: string
+): { from: string; to: string } | null {
+  if (key === "all" || key === "custom") return null;
+
+  const todayDate = parseISO(`${today}T00:00:00`);
+  const yesterday = format(subDays(todayDate, 1), "yyyy-MM-dd");
+
+  switch (key) {
+    case "yesterday":
+      return { from: yesterday, to: yesterday };
+    case "last7":
+      return { from: format(subDays(todayDate, 7), "yyyy-MM-dd"), to: yesterday };
+    case "last30":
+      return { from: format(subDays(todayDate, 30), "yyyy-MM-dd"), to: yesterday };
+    case "month":
+      return { from: format(startOfMonth(todayDate), "yyyy-MM-dd"), to: yesterday };
+    case "year":
+      return { from: format(startOfYear(todayDate), "yyyy-MM-dd"), to: yesterday };
+    default:
+      return null;
+  }
+}
 
 type DayGroup = {
   date: string;
@@ -110,6 +166,7 @@ export function NamazKaza({
   const [extrasByItem, setExtrasByItem] = useState<Record<string, Extras>>({});
 
   const [prayerFilter, setPrayerFilter] = useState("");
+  const [range, setRange] = useState<KazaRange>("all");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [sort, setSort] = useState<SortOrder>("newest");
@@ -158,10 +215,22 @@ export function NamazKaza({
     }));
   }, [outstanding]);
 
+  const todayIso = data?.schedule?.today ?? format(new Date(), "yyyy-MM-dd");
+
+  /** The window actually in force — a preset, or the custom date pickers. */
+  const activeWindow = useMemo(() => {
+    const preset = resolveKazaRange(range, todayIso);
+    if (preset) return preset;
+    return {
+      from: fromDate || null,
+      to: toDate || null,
+    };
+  }, [range, todayIso, fromDate, toDate]);
+
   const days: DayGroup[] = useMemo(() => {
     const filtered = allDays
-      .filter((d) => (fromDate ? d.date >= fromDate : true))
-      .filter((d) => (toDate ? d.date <= toDate : true))
+      .filter((d) => (activeWindow.from ? d.date >= activeWindow.from : true))
+      .filter((d) => (activeWindow.to ? d.date <= activeWindow.to : true))
       .map((d) => ({
         ...d,
         prayers: prayerFilter
@@ -175,12 +244,29 @@ export function NamazKaza({
         ? b.date.localeCompare(a.date)
         : a.date.localeCompare(b.date)
     );
-  }, [allDays, fromDate, toDate, prayerFilter, sort]);
+  }, [allDays, activeWindow, prayerFilter, sort]);
 
   const visibleCount = days.reduce((n, d) => n + d.prayers.length, 0);
   const totalCount = outstanding.length;
   const hasActiveFilters =
-    prayerFilter !== "" || fromDate !== "" || toDate !== "" || sort !== "newest";
+    prayerFilter !== "" ||
+    range !== "all" ||
+    fromDate !== "" ||
+    toDate !== "" ||
+    sort !== "newest";
+
+  function applyRange(key: KazaRange) {
+    setRange(key);
+    const preset = resolveKazaRange(key, todayIso);
+    if (preset) {
+      // Mirror the preset into the pickers so the dates stay visible.
+      setFromDate(preset.from);
+      setToDate(preset.to);
+    } else if (key === "all") {
+      setFromDate("");
+      setToDate("");
+    }
+  }
 
   // Keep the open day valid as filters change; never auto-open one.
   useEffect(() => {
@@ -202,6 +288,7 @@ export function NamazKaza({
 
   function resetFilters() {
     setPrayerFilter("");
+    setRange("all");
     setFromDate("");
     setToDate("");
     setSort("newest");
@@ -303,12 +390,35 @@ export function NamazKaza({
       ) : (
         <div className="space-y-4">
           <div className={listFilterCardClass}>
+            <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
+              {KAZA_RANGE_PILLS.map((pill) => (
+                <Button
+                  key={pill.key}
+                  type="button"
+                  size="sm"
+                  variant={range === pill.key ? "default" : "secondary"}
+                  onClick={() => applyRange(pill.key)}
+                  className={cn(
+                    "rounded-full px-3",
+                    range === pill.key
+                      ? "shadow-sm"
+                      : "bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {pill.label}
+                </Button>
+              ))}
+            </div>
+
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
               <div className="w-full min-w-[10rem] sm:w-44">
                 <FilterLabel>From date</FilterLabel>
                 <DatePicker
                   value={fromDate || null}
-                  onChange={(iso) => setFromDate(iso ?? "")}
+                  onChange={(iso) => {
+                    setRange("custom");
+                    setFromDate(iso ?? "");
+                  }}
                   placeholder="Earliest"
                   clearable
                   minIso={data?.trackingStart}
@@ -319,7 +429,10 @@ export function NamazKaza({
                 <FilterLabel>To date</FilterLabel>
                 <DatePicker
                   value={toDate || null}
-                  onChange={(iso) => setToDate(iso ?? "")}
+                  onChange={(iso) => {
+                    setRange("custom");
+                    setToDate(iso ?? "");
+                  }}
                   placeholder="Latest"
                   clearable
                   minIso={fromDate || data?.trackingStart}
@@ -390,6 +503,26 @@ export function NamazKaza({
                       parseISO(`${stats.oldestDate}T00:00:00`),
                       "dd MMM yyyy"
                     )}
+                  </span>
+                </>
+              ) : null}
+              {activeWindow.from || activeWindow.to ? (
+                <>
+                  <span>·</span>
+                  <span>
+                    {activeWindow.from
+                      ? format(
+                          parseISO(`${activeWindow.from}T00:00:00`),
+                          "dd MMM yyyy"
+                        )
+                      : "start"}{" "}
+                    →{" "}
+                    {activeWindow.to
+                      ? format(
+                          parseISO(`${activeWindow.to}T00:00:00`),
+                          "dd MMM yyyy"
+                        )
+                      : "yesterday"}
                   </span>
                 </>
               ) : null}

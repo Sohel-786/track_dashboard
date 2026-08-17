@@ -28,7 +28,7 @@ import {
 import toast from "react-hot-toast";
 import { addDays, format, isValid, parseISO } from "date-fns";
 import { api, ApiError } from "@/lib/client-api";
-import { todayIso } from "@/lib/date-ranges";
+import { todayIso, trackingStartLabel } from "@/lib/date-ranges";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { Dialog } from "@/components/ui/Dialog";
 import { AppDataTable } from "@/components/ui/AppDataTable";
@@ -91,6 +91,7 @@ export default function EntriesPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
   const [strip, setStrip] = useState<AnalyticsResponse["dailyTargetHits"]>([]);
+  const [trackingStart, setTrackingStart] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -120,6 +121,7 @@ export default function EntriesPage() {
       setCategories(cats);
       setEntries(payload.entries);
       setDaySummaries(payload.daySummaries);
+      setTrackingStart(payload.trackingStart);
       setCategoryId((prev) =>
         prev && cats.some((c) => c.id === prev) ? prev : (cats[0]?.id ?? "")
       );
@@ -133,6 +135,8 @@ export default function EntriesPage() {
   const loadStrip = useCallback(async () => {
     // Keep today as the anchor while browsing recent days; only follow the
     // selection once it falls outside that window, so it stays visible.
+    // The API clamps `from` to the account start, so the strip shrinks
+    // naturally on a brand-new account instead of showing empty history.
     const anchor = todayIso();
     const windowStart = shiftIso(anchor, -(STRIP_DAYS - 1));
     const end =
@@ -150,6 +154,7 @@ export default function EntriesPage() {
         `/api/analytics?${params.toString()}`
       );
       setStrip(result.dailyTargetHits);
+      setTrackingStart(result.trackingStart);
     } catch {
       setStrip([]);
     }
@@ -374,7 +379,16 @@ export default function EntriesPage() {
         selectedDate={selectedDate}
         onSelect={setSelectedDate}
         strip={strip}
+        trackingStart={trackingStart}
       />
+
+      {trackingStart && selectedDate < trackingStart ? (
+        <div className="rounded-xl border border-amber-500/50 bg-amber-500/12 px-4 py-3 text-sm font-medium text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/12 dark:text-amber-100">
+          This day is before you started tracking (
+          {trackingStartLabel(trackingStart)}), so it holds no data and cannot
+          be logged to.
+        </div>
+      ) : null}
 
       {activeCategories.length === 0 && !loading ? (
         <EmptyState
@@ -747,13 +761,17 @@ function DayNavigator({
   selectedDate,
   onSelect,
   strip,
+  trackingStart,
 }: {
   selectedDate: string;
   onSelect: (iso: string) => void;
   strip: AnalyticsResponse["dailyTargetHits"];
+  /** Nothing before this day exists for this account. */
+  trackingStart: string | null;
 }) {
   const today = todayIso();
   const parsed = parseISO(`${selectedDate}T00:00:00`);
+  const atStart = Boolean(trackingStart && selectedDate <= trackingStart);
 
   return (
     <div className={listFilterCardClass}>
@@ -764,6 +782,12 @@ function DayNavigator({
             variant="outline"
             size="icon"
             aria-label="Previous day"
+            disabled={atStart}
+            title={
+              atStart
+                ? "This is the first day this account tracks"
+                : "Previous day"
+            }
             onClick={() => onSelect(shiftIso(selectedDate, -1))}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -806,6 +830,7 @@ function DayNavigator({
           <div className="w-44">
             <DatePicker
               value={selectedDate}
+              minIso={trackingStart ?? undefined}
               onChange={(iso) => iso && onSelect(iso)}
             />
           </div>
@@ -815,6 +840,8 @@ function DayNavigator({
       {strip.length > 0 ? (
         <div className="overflow-x-auto border-t border-border px-4 py-3">
           <div className="flex gap-1.5">
+            {/* The server already clamps this to the account start, so the
+                strip can never offer a day that holds no data by definition. */}
             {strip.map((day) => {
               const active = day.date === selectedDate;
               const full = day.total > 0 && day.hits === day.total;

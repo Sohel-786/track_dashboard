@@ -5,14 +5,14 @@ import NamazLog from "@/models/NamazLog";
 import { authErrorResponse, requireSession } from "@/lib/auth";
 import { fail, ok } from "@/lib/api-helpers";
 
-import { getTrackingStartDate, isValidIsoDate } from "@/lib/date-ranges";
+import { isValidIsoDate } from "@/lib/date-ranges";
 import { NAMAZ_PRAYERS, NAMAZ_PRAYER_META, isNamazPrayer } from "@/lib/namaz";
 import {
   collectGraceToday,
   collectMissed,
   type KazaMissedItem,
 } from "@/lib/namaz-analytics";
-import { getUserNamazMadhab } from "@/lib/namaz-user";
+import { getUserSettings } from "@/lib/user-settings";
 import {
   getNamazScheduleSnapshot,
   getNamazTodayIso,
@@ -122,9 +122,13 @@ function recentKaza(logs: ReturnType<typeof mapLogs>, limit = 30) {
  * `outstanding` holds **past days only** — today's closed windows are still in
  * their same-day on-time grace and are returned separately as `graceToday`.
  */
-async function buildQueue(userId: string, now: Date, madhabId: NamazMadhabId) {
+async function buildQueue(
+  userId: string,
+  now: Date,
+  madhabId: NamazMadhabId,
+  trackingStart: string
+) {
   const today = getNamazTodayIso(now);
-  const trackingStart = getTrackingStartDate();
   const schedule = getNamazScheduleSnapshot(now, madhabId);
 
   if (today < trackingStart) {
@@ -174,8 +178,8 @@ export async function GET() {
     await connectDB();
 
     const now = new Date();
-    const madhabId = await getUserNamazMadhab(session.sub);
-    return ok(await buildQueue(session.sub, now, madhabId));
+    const { madhabId, trackingStart } = await getUserSettings(session.sub);
+    return ok(await buildQueue(session.sub, now, madhabId, trackingStart));
   } catch (error) {
     return authErrorResponse(error);
   }
@@ -255,9 +259,8 @@ export async function PUT(request: NextRequest) {
       : [single!.data as KazaWrite];
 
     const now = new Date();
-    const madhabId = await getUserNamazMadhab(session.sub);
+    const { madhabId, trackingStart } = await getUserSettings(session.sub);
     const today = getNamazTodayIso(now);
-    const trackingStart = getTrackingStartDate();
 
     const errors: string[] = [];
     let completed = 0;
@@ -285,7 +288,7 @@ export async function PUT(request: NextRequest) {
     }
 
     return ok({
-      ...(await buildQueue(session.sub, now, madhabId)),
+      ...(await buildQueue(session.sub, now, madhabId, trackingStart)),
       completed,
       skipped: errors.length,
       errors,
@@ -318,9 +321,9 @@ export async function DELETE(request: NextRequest) {
     await NamazLog.deleteOne({ _id: existing._id });
 
     const now = new Date();
-    const madhabId = await getUserNamazMadhab(session.sub);
+    const { madhabId, trackingStart } = await getUserSettings(session.sub);
     return ok({
-      ...(await buildQueue(session.sub, now, madhabId)),
+      ...(await buildQueue(session.sub, now, madhabId, trackingStart)),
       undone: { date, prayer },
     });
   } catch (error) {

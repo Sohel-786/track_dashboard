@@ -4,10 +4,9 @@ import connectDB from "@/lib/mongodb";
 import NamazLog from "@/models/NamazLog";
 import { authErrorResponse, requireSession } from "@/lib/auth";
 import { fail, ok } from "@/lib/api-helpers";
-import { getTrackingStartDate } from "@/lib/date-ranges";
 import { NAMAZ_PRAYERS, isNamazPrayer } from "@/lib/namaz";
 import { buildDayStatus } from "@/lib/namaz-analytics";
-import { getUserNamazMadhab } from "@/lib/namaz-user";
+import { getUserSettings } from "@/lib/user-settings";
 import {
   canMarkOnTimeNow,
   getNamazScheduleSnapshot,
@@ -66,11 +65,11 @@ function mapLogs(
 async function buildChecklistPayload(
   userId: string,
   now: Date,
-  madhabId: NamazMadhabId
+  madhabId: NamazMadhabId,
+  trackingStart: string
 ) {
   const schedule = getNamazScheduleSnapshot(now, madhabId);
   const date = schedule.today;
-  const trackingStart = getTrackingStartDate();
 
   const todayLogs = await NamazLog.find({
     userId,
@@ -148,6 +147,7 @@ async function buildChecklistPayload(
     graceCount,
     pendingCount,
     madhabId,
+    trackingStart,
     schedule,
   };
 }
@@ -159,8 +159,10 @@ export async function GET() {
     await connectDB();
 
     const now = new Date();
-    const madhabId = await getUserNamazMadhab(session.sub);
-    return ok(await buildChecklistPayload(session.sub, now, madhabId));
+    const { madhabId, trackingStart } = await getUserSettings(session.sub);
+    return ok(
+      await buildChecklistPayload(session.sub, now, madhabId, trackingStart)
+    );
   } catch (error) {
     return authErrorResponse(error);
   }
@@ -178,9 +180,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const now = new Date();
-    const madhabId = await getUserNamazMadhab(session.sub);
+    const { madhabId, trackingStart } = await getUserSettings(session.sub);
     const today = getNamazTodayIso(now);
-    const trackingStart = getTrackingStartDate();
     const { prayer, prayed } = parsed.data;
     if (!isNamazPrayer(prayer)) return fail("Invalid prayer");
 
@@ -240,7 +241,9 @@ export async function PUT(request: NextRequest) {
         date,
         prayer,
       });
-      return ok(await buildChecklistPayload(session.sub, now, madhabId));
+      return ok(
+        await buildChecklistPayload(session.sub, now, madhabId, trackingStart)
+      );
     }
 
     const existing = await NamazLog.findOne({
@@ -266,7 +269,9 @@ export async function PUT(request: NextRequest) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    return ok(await buildChecklistPayload(session.sub, now, madhabId));
+    return ok(
+      await buildChecklistPayload(session.sub, now, madhabId, trackingStart)
+    );
   } catch (error) {
     return authErrorResponse(error);
   }

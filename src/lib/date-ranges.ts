@@ -24,11 +24,32 @@ export function isValidIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+/** Calendar day (YYYY-MM-DD) of an instant as seen in a given IANA time zone. */
+export function isoDateInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const bag: Record<string, string> = {};
+  for (const p of parts) if (p.type !== "literal") bag[p.type] = p.value;
+  return `${bag.year}-${bag.month}-${bag.day}`;
+}
+
+/** No global floor configured — per-user start dates govern on their own. */
+const NO_TRACKING_FLOOR = "1970-01-01";
+
 /**
- * First calendar day TrackDash should count for analytics / namaz misses.
- * Set NEXT_PUBLIC_TRACKING_START_DATE (YYYY-MM-DD) at go-live.
+ * Deployment-wide earliest day TrackDash will ever count, from
+ * NEXT_PUBLIC_TRACKING_START_DATE. This is only a **floor**: the day a given
+ * account actually starts tracking is per-user and usually later — see
+ * `getUserTrackingStart` in lib/user-settings.ts.
+ *
+ * Leaving it unset is fine and is the recommended default; each user then
+ * starts from the day their account was created.
  */
-export function getTrackingStartDate(): string {
+export function getTrackingStartFloor(): string {
   const raw =
     process.env.NEXT_PUBLIC_TRACKING_START_DATE?.trim() ||
     process.env.TRACKING_START_DATE?.trim();
@@ -37,14 +58,23 @@ export function getTrackingStartDate(): string {
   if (raw && isValidIsoDate(raw)) {
     return raw > today ? today : raw;
   }
-  return "2020-01-01";
+  return NO_TRACKING_FLOOR;
 }
 
-/** Raise `from`/`to` so the window never precedes go-live. */
+/**
+ * @deprecated Server code must use `getUserTrackingStart(userId)`; client code
+ * must read `trackingStart` from the API payload. Kept as the default for pure
+ * helpers whose callers always pass an explicit value.
+ */
+export function getTrackingStartDate(): string {
+  return getTrackingStartFloor();
+}
+
+/** Raise `from`/`to` so the window never precedes the tracking start. */
 export function clampRangeToTrackingStart(
   from: string,
   to: string,
-  start = getTrackingStartDate()
+  start = getTrackingStartFloor()
 ): { from: string; to: string } {
   let nextFrom = from;
   let nextTo = to;
@@ -56,12 +86,12 @@ export function clampRangeToTrackingStart(
 
 export function isBeforeTrackingStart(
   date: string,
-  start = getTrackingStartDate()
+  start = getTrackingStartFloor()
 ): boolean {
   return date < start;
 }
 
-export function trackingStartLabel(start = getTrackingStartDate()): string {
+export function trackingStartLabel(start = getTrackingStartFloor()): string {
   try {
     return format(new Date(`${start}T00:00:00`), "dd MMM yyyy");
   } catch {
@@ -75,7 +105,8 @@ export function trackingStartLabel(start = getTrackingStartDate()): string {
 export function resolveAnalyticsQuickRange(
   key: AnalyticsQuickRange,
   customFrom?: string,
-  customTo?: string
+  customTo?: string,
+  start?: string
 ): { from: string; to: string } {
   const today = new Date();
   const fmt = (d: Date) => format(d, "yyyy-MM-dd");
@@ -111,7 +142,7 @@ export function resolveAnalyticsQuickRange(
       to = fmt(today);
   }
 
-  return clampRangeToTrackingStart(from, to);
+  return clampRangeToTrackingStart(from, to, start ?? getTrackingStartFloor());
 }
 
 /** Inclusive day range as ISO strings. */

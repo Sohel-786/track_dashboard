@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/client-api";
 import {
-  getTrackingStartDate,
   resolveAnalyticsQuickRange,
   trackingStartLabel,
   type AnalyticsQuickRange,
@@ -149,7 +148,8 @@ export default function DashboardAnalytics() {
   const [loading, setLoading] = useState(true);
   const [scopedLoading, setScopedLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const trackingStart = getTrackingStartDate();
+  /** Authoritative per-account start; the server clamps every range to it. */
+  const trackingStart = baseData?.trackingStart ?? null;
 
   const hasActiveFilters = useMemo(
     () =>
@@ -369,7 +369,7 @@ export default function DashboardAnalytics() {
             <FilterLabel>From</FilterLabel>
             <DatePicker
               value={from}
-              minIso={trackingStart}
+              minIso={trackingStart ?? undefined}
               maxIso={to}
               onChange={(iso) => {
                 if (!iso) return;
@@ -428,9 +428,11 @@ export default function DashboardAnalytics() {
               ) : null}
             </span>
           ) : null}
-          <span className="ml-auto">
-            Counting from go-live ({trackingStartLabel(trackingStart)})
-          </span>
+          {trackingStart ? (
+            <span className="ml-auto">
+              Counting from {trackingStartLabel(trackingStart)}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -510,10 +512,16 @@ export default function DashboardAnalytics() {
                   sub={`${kpis.entryCount} entries over ${kpis.rangeDays} days`}
                   icon={Activity}
                   accent="indigo"
-                  delta={{
-                    pct: data.deltas.rangeTotal,
-                    label: `vs ${data.previousRange.from} → ${data.previousRange.to}`,
-                  }}
+                  /* No delta when the comparison window predates the account —
+                     "+100% vs nothing" is noise, not a trend. */
+                  delta={
+                    data.deltas.comparable
+                      ? {
+                          pct: data.deltas.rangeTotal,
+                          label: `vs ${data.previousRange.from} → ${data.previousRange.to}`,
+                        }
+                      : undefined
+                  }
                 />
                 <StatTile
                   label="Perfect days"

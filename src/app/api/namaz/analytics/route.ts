@@ -10,7 +10,7 @@ import {
 } from "@/lib/date-ranges";
 import { isNamazPrayer } from "@/lib/namaz";
 import { buildNamazAnalytics } from "@/lib/namaz-analytics";
-import { getUserNamazMadhab } from "@/lib/namaz-user";
+import { getUserSettings } from "@/lib/user-settings";
 
 const QUICK_RANGES: AnalyticsQuickRange[] = [
   "today",
@@ -39,10 +39,17 @@ export async function GET(request: NextRequest) {
     const prayerParam = searchParams.get("prayer") || "";
     const prayerFilter = isNamazPrayer(prayerParam) ? prayerParam : null;
 
-    const { from, to } = resolveAnalyticsQuickRange(quick, customFrom, customTo);
-    if (from > to) return fail("from must be before to");
+    const { madhabId, trackingStart } = await getUserSettings(session.sub);
 
-    const madhabId = await getUserNamazMadhab(session.sub);
+    // Clamp to the account's own start so a fresh install never reports days
+    // from before the user existed as missed prayers.
+    const { from, to } = resolveAnalyticsQuickRange(
+      quick,
+      customFrom,
+      customTo,
+      trackingStart
+    );
+    if (from > to) return fail("from must be before to");
 
     const logs = await NamazLog.find({
       userId: session.sub,
@@ -85,6 +92,7 @@ export async function GET(request: NextRequest) {
       from,
       to,
       now: new Date(),
+      trackingStart,
       madhabId,
       prayerFilter,
       logs: logs.map(mapLog),
@@ -94,6 +102,7 @@ export async function GET(request: NextRequest) {
       from,
       to,
       now: new Date(),
+      trackingStart,
       madhabId,
       prayerFilter,
       logs: streakLogs.map(mapLog),
@@ -103,6 +112,7 @@ export async function GET(request: NextRequest) {
       appliedRange: { quick, from, to },
       madhabId,
       ...analytics,
+      trackingStart,
       kpis: {
         ...analytics.kpis,
         streak: withHistory.kpis.streak,

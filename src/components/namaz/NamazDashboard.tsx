@@ -16,7 +16,6 @@ import {
 import { api } from "@/lib/client-api";
 import type { AnalyticsQuickRange } from "@/lib/date-ranges";
 import {
-  getTrackingStartDate,
   resolveAnalyticsQuickRange,
   trackingStartLabel,
 } from "@/lib/date-ranges";
@@ -144,7 +143,8 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
   const [data, setData] = useState<NamazAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const trackingStart = getTrackingStartDate();
+  /** Authoritative per-account start; the server clamps every range to it. */
+  const trackingStart = data?.trackingStart ?? null;
 
   const hasActiveFilters =
     Boolean(prayerFilter) ||
@@ -280,8 +280,10 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
         </h2>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
           Rates are measured over days that have finished — today is still open,
-          so it never counts against you. Tracking starts{" "}
-          {trackingStartLabel(trackingStart)}.
+          so it never counts against you.
+          {trackingStart
+            ? ` Nothing before ${trackingStartLabel(trackingStart)} is counted, so days from before you started tracking never appear as misses.`
+            : null}
         </p>
       </div>
 
@@ -311,7 +313,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
             <FilterLabel>From</FilterLabel>
             <DatePicker
               value={from}
-              minIso={trackingStart}
+              minIso={trackingStart ?? undefined}
               maxIso={to}
               onChange={(iso) => {
                 if (!iso) return;

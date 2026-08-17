@@ -1,15 +1,17 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Search, UserPlus } from "lucide-react";
+import { CalendarClock, Search, UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, ApiError } from "@/lib/client-api";
+import { todayIso, trackingStartLabel } from "@/lib/date-ranges";
 import { useAuth } from "@/components/AuthProvider";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { Dialog } from "@/components/ui/Dialog";
 import { AppDataTable, StatusBadge } from "@/components/ui/AppDataTable";
 import { Button } from "@/components/ui/button";
 import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { FilterLabel } from "@/components/ui/label";
 import {
@@ -26,12 +28,9 @@ import {
   tableHeadCellClass,
   tableHeadRowClass,
 } from "@/lib/ui-styles";
-import type { AuthUser, UserRole } from "@/types";
+import type { AdminUser, UserRole } from "@/types";
 
-type ManagedUser = AuthUser & {
-  isActive: boolean;
-  createdAt?: string;
-};
+type ManagedUser = AdminUser;
 
 export default function UsersPage() {
   const { user } = useAuth();
@@ -44,6 +43,10 @@ export default function UsersPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("user");
+  const [startDate, setStartDate] = useState<string>(todayIso());
+  const [startEditing, setStartEditing] = useState<ManagedUser | null>(null);
+  const [startDraft, setStartDraft] = useState<string>("");
+  const [startSaving, setStartSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,7 +83,13 @@ export default function UsersPage() {
     try {
       await api("/api/users", {
         method: "POST",
-        body: JSON.stringify({ username, password, name, role }),
+        body: JSON.stringify({
+          username,
+          password,
+          name,
+          role,
+          trackingStartDate: startDate || undefined,
+        }),
       });
       toast.success("User created");
       setDialogOpen(false);
@@ -88,6 +97,7 @@ export default function UsersPage() {
       setPassword("");
       setName("");
       setRole("user");
+      setStartDate(todayIso());
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Create failed");
@@ -106,6 +116,36 @@ export default function UsersPage() {
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Update failed");
+    }
+  }
+
+  function openStartEditor(u: ManagedUser) {
+    setStartEditing(u);
+    setStartDraft(u.trackingStartDate ?? u.trackingStart);
+  }
+
+  /** `clear` drops the override so the account falls back to its creation day. */
+  async function saveTrackingStart(clear = false) {
+    if (!startEditing) return;
+    setStartSaving(true);
+    try {
+      await api(`/api/users/${startEditing.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          trackingStartDate: clear ? null : startDraft,
+        }),
+      });
+      toast.success(
+        clear
+          ? "Reset to the account creation day"
+          : `Tracking starts ${trackingStartLabel(startDraft)}`
+      );
+      setStartEditing(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Update failed");
+    } finally {
+      setStartSaving(false);
     }
   }
 
@@ -164,6 +204,7 @@ export default function UsersPage() {
             <th className={tableHeadCellClass}>Name</th>
             <th className={tableHeadCellClass}>Username</th>
             <th className={tableHeadCellClass}>Role</th>
+            <th className={tableHeadCellClass}>Tracking from</th>
             <th className={tableHeadCellClass}>Status</th>
             <th className={`${tableHeadCellClass} text-right`}>Actions</th>
           </tr>
@@ -176,6 +217,24 @@ export default function UsersPage() {
               </td>
               <td className={tableBodyCellClass}>@{u.username}</td>
               <td className={`${tableBodyCellClass} capitalize`}>{u.role}</td>
+              <td className={tableBodyCellClass}>
+                <button
+                  type="button"
+                  onClick={() => openStartEditor(u)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-left text-xs font-semibold transition hover:border-teal-500 hover:bg-teal-500/8"
+                  title="Change the first day this account tracks"
+                >
+                  <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="tabular-nums">
+                    {trackingStartLabel(u.trackingStart)}
+                  </span>
+                  {u.trackingStartIsImplicit ? (
+                    <span className="rounded bg-muted px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+                      auto
+                    </span>
+                  ) : null}
+                </button>
+              </td>
               <td className={tableBodyCellClass}>
                 <StatusBadge active={u.isActive} />
               </td>
@@ -194,6 +253,59 @@ export default function UsersPage() {
           ))}
         </tbody>
       </AppDataTable>
+
+      <Dialog
+        isOpen={startEditing !== null}
+        onClose={() => setStartEditing(null)}
+        title={
+          startEditing
+            ? `Tracking start · ${startEditing.name}`
+            : "Tracking start"
+        }
+        footer={
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void saveTrackingStart(true)}
+              disabled={startSaving || startEditing?.trackingStartIsImplicit}
+              className="flex-1"
+            >
+              Reset to auto
+            </Button>
+            <Button
+              type="button"
+              loading={startSaving}
+              onClick={() => void saveTrackingStart(false)}
+              className="flex-1"
+            >
+              Save
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            The first day this account counts. Nothing before it is ever shown as
+            a missed prayer, charted as an empty day, or accepted as an entry.
+          </p>
+          <div>
+            <FilterLabel>First tracked day</FilterLabel>
+            <DatePicker
+              value={startDraft}
+              maxIso={todayIso()}
+              onChange={(iso) => iso && setStartDraft(iso)}
+            />
+          </div>
+          {startEditing ? (
+            <p className="rounded-xl border border-border bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+              {startEditing.trackingStartIsImplicit
+                ? "Currently automatic — derived from the day this account was created."
+                : `Currently overridden to ${trackingStartLabel(startEditing.trackingStart)}.`}
+            </p>
+          ) : null}
+        </div>
+      </Dialog>
 
       <Dialog
         isOpen={dialogOpen}
@@ -263,6 +375,18 @@ export default function UsersPage() {
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <FilterLabel>Tracking starts</FilterLabel>
+            <DatePicker
+              value={startDate}
+              maxIso={todayIso()}
+              onChange={(iso) => iso && setStartDate(iso)}
+            />
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Days before this are never counted as missed prayers. Defaults to
+              today, so a new account starts with a clean slate.
+            </p>
           </div>
         </form>
       </Dialog>

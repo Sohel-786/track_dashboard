@@ -5,8 +5,9 @@ import Entry from "@/models/Entry";
 import Category from "@/models/Category";
 import { authErrorResponse, requireSession } from "@/lib/auth";
 import { fail, isObjectId, ok } from "@/lib/api-helpers";
-import { isValidIsoDate, todayIso } from "@/lib/date-ranges";
+import { isValidIsoDate, todayIso, trackingStartLabel } from "@/lib/date-ranges";
 import { dayTotalsByCategory } from "@/lib/analytics";
+import { getUserTrackingStart } from "@/lib/user-settings";
 
 const createSchema = z.object({
   categoryId: z.string().min(1),
@@ -28,19 +29,20 @@ export async function GET(request: NextRequest) {
     const categoryId = searchParams.get("categoryId");
     const limit = Math.min(Number(searchParams.get("limit") || 300), 1000);
 
+    const trackingStart = await getUserTrackingStart(session.sub);
     const filter: Record<string, unknown> = { userId: session.sub };
 
     if (dateParam) {
       if (!isValidIsoDate(dateParam)) return fail("Invalid date");
       filter.date = dateParam;
     } else if (from || to) {
-      filter.date = {};
-      if (from && isValidIsoDate(from)) {
-        (filter.date as Record<string, string>).$gte = from;
+      // Ranges never reach behind the account's start.
+      const range: Record<string, string> = { $gte: trackingStart };
+      if (from && isValidIsoDate(from) && from > trackingStart) {
+        range.$gte = from;
       }
-      if (to && isValidIsoDate(to)) {
-        (filter.date as Record<string, string>).$lte = to;
-      }
+      if (to && isValidIsoDate(to)) range.$lte = to;
+      filter.date = range;
     } else {
       filter.date = todayIso();
     }
@@ -143,6 +145,9 @@ export async function GET(request: NextRequest) {
 
     return ok({
       date: typeof filter.date === "string" ? filter.date : dayKey,
+      trackingStart,
+      beforeTrackingStart:
+        typeof filter.date === "string" && filter.date < trackingStart,
       entries: mapped,
       daySummaries,
     });
@@ -173,6 +178,13 @@ export async function POST(request: NextRequest) {
     if (!isValidIsoDate(date)) return fail("Invalid date format (YYYY-MM-DD)");
 
     await connectDB();
+
+    const trackingStart = await getUserTrackingStart(session.sub);
+    if (date < trackingStart) {
+      return fail(
+        `Tracking starts on ${trackingStartLabel(trackingStart)}. Earlier days cannot be logged.`
+      );
+    }
 
     const category = await Category.findOne({
       _id: parsed.data.categoryId,

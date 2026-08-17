@@ -12,6 +12,26 @@ Personal progress tracker built as a single Next.js app (UI + API).
 - Dashboard KPIs (today / week / month / year / custom) + progressive charts
 - Installable PWA
 
+## Tracking start (why a new account has no backlog)
+
+Every account has a **first tracked day**. Nothing before it is ever counted as
+a missed prayer, charted as an empty day, or accepted as an entry — there is no
+such thing as a day you failed to record before you started.
+
+It resolves in this order (strongest first):
+
+1. the account's own `trackingStartDate`, when an admin sets one in
+   **Users → Tracking from**;
+2. otherwise **the day the account was created** — the default, so a brand-new
+   user always starts clean;
+3. raised (never lowered) by the optional deployment-wide floor
+   `NEXT_PUBLIC_TRACKING_START_DATE`.
+
+The floor is optional and usually unnecessary. Set it only to hard-stop a whole
+deployment from counting anything before a go-live date; on Vercel it must be
+added to the project env and redeployed, whereas the per-user date is editable
+from the UI at any time.
+
 ## Setup (local)
 
 1. Copy `.env.example` to `.env.local` and set:

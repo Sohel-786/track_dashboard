@@ -1,15 +1,14 @@
-import User from "@/models/User";
-import {
-  DEFAULT_NAMAZ_MADHAB,
-  isNamazMadhabId,
-  type NamazMadhabId,
-} from "@/lib/namaz-madhab";
+import { getUserSettings } from "@/lib/user-settings";
+import { type NamazMadhabId } from "@/lib/namaz-madhab";
 
-/** Resolve the signed-in user's madhab preference (defaults to Hanafi). */
+/**
+ * Resolve the signed-in user's madhab preference (defaults to Hanafi).
+ *
+ * Prefer `getUserSettings` when the caller also needs the tracking start —
+ * it returns both from a single lookup.
+ */
 export async function getUserNamazMadhab(
   userId: string
 ): Promise<NamazMadhabId> {
-  const user = await User.findById(userId).select("namazMadhab").lean();
-  const raw = (user as { namazMadhab?: string } | null)?.namazMadhab;
-  return isNamazMadhabId(raw) ? raw : DEFAULT_NAMAZ_MADHAB;
+  return (await getUserSettings(userId)).madhabId;
 }
