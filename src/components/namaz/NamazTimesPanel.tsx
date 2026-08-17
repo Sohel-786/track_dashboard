@@ -243,7 +243,7 @@ export function NamazTimesPanel({
       <div className="border-b border-border bg-gradient-to-br from-teal-500/10 via-card to-card px-4 py-4 sm:px-5 sm:py-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+            <p className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
               Namaz times
             </p>
             <h2 className="mt-0.5 text-lg font-bold tracking-tight sm:text-xl">
@@ -295,7 +295,7 @@ export function NamazTimesPanel({
 
           <div className="min-w-[15rem] rounded-xl border border-border bg-background/70 px-3 py-2.5 text-xs">
             <div className="flex items-center gap-1.5 font-semibold">
-              <MapPin className="h-3.5 w-3.5 text-teal-600" />
+              <MapPin className="h-3.5 w-3.5 text-teal-700 dark:text-teal-400" />
               {schedule?.location.city ?? "Ahmedabad"}, India
             </div>
             <div className="mt-1 flex items-center gap-1.5 text-muted-foreground">
@@ -327,8 +327,8 @@ export function NamazTimesPanel({
                   className={cn(
                     "rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide",
                     focus.kind === "open"
-                      ? "bg-teal-500/15 text-teal-800 dark:text-teal-200"
-                      : "bg-sky-500/15 text-sky-900 dark:text-sky-200"
+                      ? "bg-teal-500/15 text-teal-800 dark:bg-teal-400/15 dark:text-teal-200"
+                      : "bg-sky-500/15 text-sky-900 dark:bg-sky-400/15 dark:text-sky-200"
                   )}
                 >
                   {focus.kind === "open"
@@ -375,7 +375,7 @@ export function NamazTimesPanel({
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {focus.kind === "open" ? "Time left" : "Countdown"}
                   </p>
-                  <p className="mt-0.5 font-mono text-xl font-bold tabular-nums tracking-tight text-teal-700 dark:text-teal-300">
+                  <p className="mt-0.5 font-mono text-xl font-bold tabular-nums tracking-tight text-teal-800 dark:text-teal-300">
                     {formatCountdown(focus.targetMs - nowMs)}
                   </p>
                 </div>
@@ -447,11 +447,11 @@ export function NamazTimesPanel({
                     "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm transition",
                     kind === "overnight"
                       ? overnightFocus
-                        ? "border-indigo-400/50 bg-indigo-500/10"
-                        : "border-indigo-400/30 bg-indigo-500/5"
+                        ? "border-indigo-600/50 bg-indigo-500/12 dark:border-indigo-400/50 dark:bg-indigo-400/12"
+                        : "border-indigo-600/30 bg-indigo-500/8 dark:border-indigo-400/30 dark:bg-indigo-400/8"
                       : active
-                        ? "border-teal-400/50 bg-teal-500/10"
-                        : "border-transparent bg-muted/30"
+                        ? "border-teal-600/50 bg-teal-500/12 dark:border-teal-400/50 dark:bg-teal-400/12"
+                        : "border-border bg-muted/50"
                   )}
                 >
                   <div className="min-w-0">
@@ -460,7 +460,7 @@ export function NamazTimesPanel({
                       className={cn(
                         "text-[10px]",
                         kind === "overnight"
-                          ? "font-medium text-indigo-700 dark:text-indigo-300"
+                          ? "font-semibold text-indigo-800 dark:text-indigo-300"
                           : "text-muted-foreground"
                       )}
                     >

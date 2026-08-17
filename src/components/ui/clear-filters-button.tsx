@@ -21,7 +21,7 @@ export function ClearFiltersButton({
       size="sm"
       onClick={onClick}
       className={cn(
-        "h-10 shrink-0 border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/30",
+        "h-10 shrink-0 border-rose-300 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-400/10 dark:hover:text-rose-200",
         className
       )}
     >

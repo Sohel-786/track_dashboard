@@ -248,7 +248,7 @@ export default function CategoriesPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => void deactivate(cat.id)}
-                      className="border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/40"
+                      className="border-rose-300 text-rose-700 hover:bg-rose-500/10 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-400/10"
                     >
                       Deactivate
                     </Button>

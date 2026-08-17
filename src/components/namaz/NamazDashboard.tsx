@@ -272,7 +272,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
   return (
     <section className="space-y-5">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+        <p className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
           Insights
         </p>
         <h2 className="mt-0.5 text-xl font-bold tracking-tight">
@@ -395,7 +395,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
           Loading namaz analytics...
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+        <div className="rounded-xl border border-rose-400 bg-rose-500/12 p-6 text-sm font-medium text-rose-800 dark:border-rose-400/40 dark:bg-rose-400/12 dark:text-rose-200">
           {error}
         </div>
       ) : data && kpis ? (
@@ -489,8 +489,8 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                 <RateBars rows={prayerRates} />
                 {strongest && weakest && strongest.label !== weakest.label ? (
                   <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3">
-                    <div className="rounded-lg bg-emerald-500/10 px-2.5 py-2">
-                      <p className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                    <div className="rounded-lg bg-emerald-500/12 px-2.5 py-2 dark:bg-emerald-400/12">
+                      <p className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
                         <Trophy className="h-3 w-3" /> Strongest
                       </p>
                       <p className="mt-0.5 text-sm font-bold">
@@ -500,8 +500,8 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                         </span>
                       </p>
                     </div>
-                    <div className="rounded-lg bg-rose-500/10 px-2.5 py-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300">
+                    <div className="rounded-lg bg-rose-500/12 px-2.5 py-2 dark:bg-rose-400/12">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300">
                         Needs attention
                       </p>
                       <p className="mt-0.5 text-sm font-bold">
@@ -723,7 +723,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                       <div className="flex items-center gap-2">
                         <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                           <div
-                            className="h-full rounded-full bg-teal-500"
+                            className="h-full rounded-full bg-teal-600 dark:bg-teal-400"
                             style={{ width: `${Math.min(100, d.completedPct)}%` }}
                           />
                         </div>
@@ -733,7 +733,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                       </div>
                     </td>
                     <td className={cn(tableBodyCellClass, "text-xs tabular-nums")}>
-                      <span className="font-semibold text-teal-700 dark:text-teal-300">
+                      <span className="font-semibold text-teal-800 dark:text-teal-300">
                         {d.sunnahWith}
                       </span>
                       <span className="text-muted-foreground">
@@ -790,7 +790,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                         {m.date}
                       </td>
                       <td className={tableBodyCellClass}>
-                        <span className="inline-flex rounded-full bg-rose-500/15 px-2.5 py-1 text-xs font-bold text-rose-700 dark:text-rose-300">
+                        <span className="inline-flex rounded-full bg-rose-500/15 px-2.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-400/15 dark:text-rose-200">
                           {m.label}
                         </span>
                       </td>

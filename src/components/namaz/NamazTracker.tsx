@@ -223,7 +223,7 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
       <div className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+            <p className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
               Today’s checklist
             </p>
             <h2 className="mt-0.5 text-lg font-bold tracking-tight sm:text-xl">
@@ -339,12 +339,17 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
   );
 }
 
+/* Light uses the dark end of each hue on a pale tint, dark uses the light end
+   on a dark tint — both clear 4.5:1. See scripts/check-contrast.ts. */
 const CHIP_TONES = {
-  emerald: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
-  amber: "bg-amber-500/15 text-amber-900 dark:text-amber-200",
-  rose: "bg-rose-500/15 text-rose-800 dark:text-rose-200",
-  teal: "bg-teal-500/15 text-teal-800 dark:text-teal-200",
-  indigo: "bg-indigo-500/15 text-indigo-900 dark:text-indigo-200",
+  emerald:
+    "bg-emerald-500/15 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200",
+  amber:
+    "bg-amber-500/15 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200",
+  rose: "bg-rose-500/15 text-rose-800 dark:bg-rose-400/15 dark:text-rose-200",
+  teal: "bg-teal-500/15 text-teal-800 dark:bg-teal-400/15 dark:text-teal-200",
+  indigo:
+    "bg-indigo-500/15 text-indigo-900 dark:bg-indigo-400/15 dark:text-indigo-200",
   slate: "bg-muted text-muted-foreground",
 } as const;
 
@@ -378,9 +383,18 @@ function DayProgressBar({
   return (
     <div>
       <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-        <div className="bg-emerald-500 transition-all" style={{ width: seg(onTime) }} />
-        <div className="bg-amber-500 transition-all" style={{ width: seg(kaza) }} />
-        <div className="bg-rose-500/70 transition-all" style={{ width: seg(grace) }} />
+        <div
+          className="bg-emerald-600 transition-all dark:bg-emerald-400"
+          style={{ width: seg(onTime) }}
+        />
+        <div
+          className="bg-amber-700 transition-all dark:bg-amber-400"
+          style={{ width: seg(kaza) }}
+        />
+        <div
+          className="bg-rose-600 transition-all dark:bg-rose-400"
+          style={{ width: seg(grace) }}
+        />
       </div>
       <p className="mt-1.5 text-[11px] font-semibold text-muted-foreground">
         {onTime + kaza} of {total} prayers recorded today
@@ -428,15 +442,17 @@ function PrayerCard({
 
   return (
     <article
+      /* The card border is the at-a-glance status signal, so it is 2px in a
+         mid-tone hue rather than a faint 1px tint that washes out on white. */
       className={cn(
-        "relative flex flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition",
-        onTime && "border-emerald-300/70 dark:border-emerald-800",
-        kazaDone && "border-amber-300/70 dark:border-amber-800",
-        grace && "border-rose-300/70 dark:border-rose-900",
+        "relative flex flex-col overflow-hidden rounded-2xl border-2 bg-card shadow-sm transition",
+        onTime && "border-emerald-600/60 dark:border-emerald-400/60",
+        kazaDone && "border-amber-600/60 dark:border-amber-400/60",
+        grace && "border-rose-600/70 dark:border-rose-400/70",
         open &&
           (prayer.isOvernightCarryover
-            ? "border-indigo-300/70 dark:border-indigo-800"
-            : "border-teal-300/70 dark:border-teal-800"),
+            ? "border-indigo-600/60 dark:border-indigo-400/60"
+            : "border-teal-600/60 dark:border-teal-400/60"),
         !done && !grace && !open && "border-border"
       )}
     >
@@ -497,7 +513,7 @@ function PrayerCard({
         ) : null}
 
         {grace ? (
-          <p className="flex items-start gap-1.5 rounded-xl border border-rose-400/30 bg-rose-500/10 px-2.5 py-2 text-[11px] font-medium text-rose-900 dark:text-rose-100">
+          <p className="flex items-start gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-2.5 py-2 text-[11px] font-medium text-rose-900 dark:border-rose-400/40 dark:bg-rose-400/10 dark:text-rose-100">
             <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
             <span>
               Window closed at {slot?.endsAtLabel ?? "—"}. Still yours to record
@@ -544,11 +560,11 @@ function PrayerCard({
 
           {kazaDone ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-between rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-3">
+              <div className="flex items-center justify-between rounded-xl border border-amber-500/50 bg-amber-500/12 px-3 py-3 dark:border-amber-400/50 dark:bg-amber-400/12">
                 <span className="text-sm font-semibold text-amber-900 dark:text-amber-100">
                   Completed as Kaza
                 </span>
-                <History className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                <History className="h-4 w-4 text-amber-800 dark:text-amber-300" />
               </div>
               <Button
                 type="button"
@@ -571,10 +587,11 @@ function PrayerCard({
                 className={cn(
                   "flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition",
                   onTime
-                    ? "border-emerald-400/60 bg-emerald-500/10"
+                    ? "border-emerald-500/60 bg-emerald-500/12 text-emerald-900 dark:bg-emerald-400/12 dark:text-emerald-100"
                     : grace
-                      ? "border-emerald-500/60 bg-emerald-600 text-white hover:bg-emerald-700"
-                      : "border-border bg-background hover:bg-muted/60",
+                      ? /* emerald-700: white on -600 is 3.9:1 and fails AA. */
+                        "border-emerald-800 bg-emerald-700 text-white hover:bg-emerald-800 dark:border-emerald-400 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
+                      : "border-border bg-background hover:bg-muted",
                   (busy || upcoming) && "cursor-not-allowed opacity-60"
                 )}
               >
@@ -589,9 +606,9 @@ function PrayerCard({
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded-md border",
                     onTime
-                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      ? "border-emerald-700 bg-emerald-700 text-white dark:border-emerald-400 dark:bg-emerald-400 dark:text-emerald-950"
                       : grace
-                        ? "border-white/40 bg-white/15 text-white"
+                        ? "border-white/50 bg-white/20 text-white dark:border-emerald-950/40 dark:bg-emerald-950/20 dark:text-emerald-950"
                         : "border-border bg-card"
                   )}
                 >
@@ -638,35 +655,25 @@ function StatusBadge({
     "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide";
   if (onTime) {
     return (
-      <span className={cn(base, "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300")}>
+      <span className={cn(base, CHIP_TONES.emerald)}>
         <Check className="h-3 w-3" /> On time
       </span>
     );
   }
   if (kaza) {
     return (
-      <span className={cn(base, "bg-amber-500/15 text-amber-800 dark:text-amber-200")}>
+      <span className={cn(base, CHIP_TONES.amber)}>
         <Check className="h-3 w-3" /> Kaza
       </span>
     );
   }
   if (grace) {
-    return (
-      <span className={cn(base, "bg-rose-500/15 text-rose-700 dark:text-rose-300")}>
-        Unmarked
-      </span>
-    );
+    return <span className={cn(base, CHIP_TONES.rose)}>Unmarked</span>;
   }
   if (upcoming) {
-    return (
-      <span className={cn(base, "bg-muted text-muted-foreground")}>Soon</span>
-    );
+    return <span className={cn(base, CHIP_TONES.slate)}>Soon</span>;
   }
-  return (
-    <span className={cn(base, "bg-teal-500/15 text-teal-800 dark:text-teal-200")}>
-      Open
-    </span>
-  );
+  return <span className={cn(base, CHIP_TONES.teal)}>Open</span>;
 }
 
 function OptionalToggle({
@@ -691,8 +698,8 @@ function OptionalToggle({
       className={cn(
         "flex items-center justify-between rounded-xl border px-2.5 py-2 text-left text-xs font-semibold transition",
         active
-          ? "border-teal-400/50 bg-teal-500/10 text-teal-900 dark:text-teal-100"
-          : "border-border bg-background text-muted-foreground hover:bg-muted/50",
+          ? "border-teal-600/50 bg-teal-500/12 text-teal-900 dark:border-teal-400/50 dark:bg-teal-400/12 dark:text-teal-100"
+          : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
         disabled && "cursor-not-allowed opacity-60"
       )}
     >
@@ -703,7 +710,9 @@ function OptionalToggle({
       <span
         className={cn(
           "flex h-5 w-5 items-center justify-center rounded border",
-          active ? "border-teal-500 bg-teal-500 text-white" : "border-border"
+          active
+            ? "border-teal-700 bg-teal-700 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-teal-950"
+            : "border-border bg-card"
         )}
       >
         {active ? <Check className="h-3 w-3" /> : null}

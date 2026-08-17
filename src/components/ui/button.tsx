@@ -16,9 +16,14 @@ const buttonVariants = cva(
           "border border-border bg-card text-foreground hover:bg-muted",
         ghost: "hover:bg-muted hover:text-foreground",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-rose-700",
+          "bg-destructive text-destructive-foreground shadow-sm hover:bg-rose-800",
+        /*
+         * amber-700, not -600: white on -600 is only 3.6:1 and fails AA.
+         * Dark mode flips to a bright fill with near-black text, which both
+         * pops against the dark card and clears AA comfortably.
+         */
         amber:
-          "bg-amber-600 text-white shadow-sm shadow-amber-600/20 hover:bg-amber-700",
+          "bg-amber-700 text-white shadow-sm hover:bg-amber-800 dark:bg-amber-400 dark:text-amber-950 dark:hover:bg-amber-300",
       },
       size: {
         default: "h-10 px-4 py-2",

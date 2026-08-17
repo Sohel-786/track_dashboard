@@ -50,7 +50,7 @@ export default function NamazPage() {
             <span className="inline-flex items-center gap-1.5 text-sm font-bold tracking-tight">
               Kaza
               {pastKazaCount > 0 ? (
-                <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-900 group-data-[state=active]:bg-amber-600 group-data-[state=active]:text-white dark:text-amber-200">
+                <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-900 group-data-[state=active]:bg-amber-700 group-data-[state=active]:text-white dark:bg-amber-400/20 dark:text-amber-200 dark:group-data-[state=active]:bg-amber-400 dark:group-data-[state=active]:text-amber-950">
                   {pastKazaCount > 99 ? "99+" : pastKazaCount}
                 </span>
               ) : null}

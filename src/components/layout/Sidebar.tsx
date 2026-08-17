@@ -120,9 +120,11 @@ export function Sidebar({
             ? "flex min-h-[3.5rem] items-center gap-2 py-3 pl-3 pr-2"
             : "flex min-h-[3.5rem] items-center justify-center px-2 py-2"
         )}
+        /* Darkened from 28%/36%: white text needed 4.5:1 and the lighter
+           emerald stop was only reaching ~3.3:1. */
         style={{
           background:
-            "linear-gradient(to right, hsl(173 80% 28%), hsl(160 70% 36%))",
+            "linear-gradient(to right, hsl(173 80% 24%), hsl(160 70% 28%))",
         }}
       >
         {showFullSidebar ? (

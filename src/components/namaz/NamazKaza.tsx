@@ -70,18 +70,18 @@ function ageTone(daysAgo: number) {
 
 const AGE_STYLES = {
   fresh: {
-    chip: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100",
-    dot: "bg-amber-500",
+    chip: "border-amber-400 bg-amber-100 text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/15 dark:text-amber-100",
+    dot: "bg-amber-600 dark:bg-amber-400",
     label: "Recent",
   },
   warn: {
-    chip: "border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-900/60 dark:bg-orange-950/40 dark:text-orange-100",
-    dot: "bg-orange-500",
+    chip: "border-orange-400 bg-orange-100 text-orange-900 dark:border-orange-400/50 dark:bg-orange-400/15 dark:text-orange-100",
+    dot: "bg-orange-600 dark:bg-orange-400",
     label: "Ageing",
   },
   critical: {
-    chip: "border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100",
-    dot: "bg-rose-500",
+    chip: "border-rose-400 bg-rose-100 text-rose-900 dark:border-rose-400/50 dark:bg-rose-400/15 dark:text-rose-100",
+    dot: "bg-rose-600 dark:bg-rose-400",
     label: "Overdue",
   },
 } as const;
@@ -569,8 +569,8 @@ function KazaSummary({
             className={cn(
               "text-xs font-semibold uppercase tracking-wider",
               pending === 0
-                ? "text-emerald-700 dark:text-emerald-300"
-                : "text-amber-700 dark:text-amber-300"
+                ? "text-emerald-800 dark:text-emerald-300"
+                : "text-amber-800 dark:text-amber-300"
             )}
           >
             Past days
@@ -587,7 +587,7 @@ function KazaSummary({
               : null}
           </p>
           {graceCount > 0 ? (
-            <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-rose-300/60 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-900 dark:border-rose-900 dark:text-rose-100">
+            <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-rose-500/50 bg-rose-500/12 px-2.5 py-1.5 text-xs font-semibold text-rose-900 dark:border-rose-400/50 dark:bg-rose-400/12 dark:text-rose-100">
               <AlertTriangle className="h-3.5 w-3.5" />
               {graceCount} prayer{graceCount === 1 ? "" : "s"} from today still
               unmarked — record them on the Today tab before midnight.
@@ -661,13 +661,13 @@ function SummaryStat({
 }) {
   const accent =
     tone === "critical"
-      ? "text-rose-700 dark:text-rose-300"
+      ? "text-rose-800 dark:text-rose-300"
       : tone === "warn"
-        ? "text-orange-700 dark:text-orange-300"
+        ? "text-orange-800 dark:text-orange-300"
         : tone === "fresh"
-          ? "text-amber-700 dark:text-amber-300"
+          ? "text-amber-800 dark:text-amber-300"
           : tone === "clear"
-            ? "text-emerald-700 dark:text-emerald-300"
+            ? "text-emerald-800 dark:text-emerald-300"
             : "text-foreground";
   return (
     <div className="min-w-[4.5rem] rounded-xl border border-border bg-card px-3 py-2 text-center">
@@ -682,7 +682,7 @@ function SummaryStat({
 function EmptyQueue() {
   return (
     <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-16 text-center">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-300">
         <CheckCheck className="h-6 w-6" />
       </div>
       <p className="mt-4 text-base font-bold text-foreground">
@@ -715,10 +715,10 @@ function DayCard({
       aria-expanded={selected}
       aria-label={`${format(parsed, "dd MMMM yyyy")}, ${group.prayers.length} pending`}
       className={cn(
-        "group flex flex-col justify-between gap-2 rounded-xl border p-3 text-left transition",
+        "group flex flex-col justify-between gap-2 rounded-xl border p-3 text-left shadow-sm transition",
         selected
-          ? "border-amber-500 bg-amber-500/10 ring-2 ring-amber-500/30"
-          : "border-border bg-card hover:border-amber-400/70 hover:bg-amber-500/5"
+          ? "border-amber-600 bg-amber-500/12 ring-2 ring-amber-600/30 dark:border-amber-400 dark:bg-amber-400/12 dark:ring-amber-400/30"
+          : "border-border bg-card hover:border-amber-500 hover:bg-amber-500/8"
       )}
     >
       <div>
@@ -781,11 +781,11 @@ function DayPanel({
 
   return (
     <div
-      className="col-span-full overflow-hidden rounded-xl border border-amber-400/50 bg-card shadow-md"
+      className="col-span-full overflow-hidden rounded-xl border-2 border-amber-600/60 bg-card shadow-md dark:border-amber-400/50"
       role="region"
       aria-label={`Missed prayers for ${group.date}`}
     >
-      <div className="flex flex-col gap-3 border-b border-border bg-amber-500/[0.07] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col gap-3 border-b border-border bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:bg-amber-400/10">
         <div className="min-w-0">
           <h3 className="text-base font-bold tracking-tight">
             {format(parsed, "EEEE, d MMMM yyyy")}
@@ -918,8 +918,8 @@ function ExtraToggle({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition",
         active
-          ? "border-teal-400/50 bg-teal-500/10 text-teal-900 dark:text-teal-100"
-          : "border-border bg-background text-muted-foreground hover:bg-muted/50",
+          ? "border-teal-600/50 bg-teal-500/12 text-teal-900 dark:border-teal-400/50 dark:bg-teal-400/12 dark:text-teal-100"
+          : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
         disabled && "cursor-not-allowed opacity-60"
       )}
     >
@@ -928,7 +928,9 @@ function ExtraToggle({
       <span
         className={cn(
           "flex h-4 w-4 items-center justify-center rounded border",
-          active ? "border-teal-500 bg-teal-500 text-white" : "border-border"
+          active
+            ? "border-teal-700 bg-teal-700 text-white dark:border-teal-400 dark:bg-teal-400 dark:text-teal-950"
+            : "border-border bg-card"
         )}
       >
         {active ? <Check className="h-2.5 w-2.5" /> : null}

@@ -449,7 +449,7 @@ export default function EntriesPage() {
                 </p>
               </div>
               {isFuture ? (
-                <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-900 dark:bg-amber-400/15 dark:text-amber-200">
                   Logging to a future date
                 </span>
               ) : null}
@@ -583,7 +583,9 @@ export default function EntriesPage() {
                         <div
                           className={cn(
                             "h-full rounded-full",
-                            entry.dayHitTarget ? "bg-emerald-500" : "bg-teal-500"
+                            entry.dayHitTarget
+                              ? "bg-emerald-600 dark:bg-emerald-400"
+                              : "bg-teal-600 dark:bg-teal-400"
                           )}
                           style={{
                             width: `${Math.min(100, entry.dayProgress)}%`,
@@ -625,7 +627,7 @@ export default function EntriesPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => void remove(entry)}
-                        className="h-8 w-8 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        className="h-8 w-8 text-rose-700 hover:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-400/10"
                         title="Delete entry"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -826,8 +828,8 @@ function DayNavigator({
                   className={cn(
                     "flex min-w-[3.25rem] shrink-0 flex-col items-center gap-1 rounded-lg border px-2 py-1.5 transition",
                     active
-                      ? "border-teal-500 bg-teal-500/10"
-                      : "border-border bg-card hover:bg-muted/50"
+                      ? "border-teal-600 bg-teal-500/12 ring-1 ring-teal-600/30 dark:border-teal-400 dark:bg-teal-400/12 dark:ring-teal-400/30"
+                      : "border-border bg-card hover:bg-muted"
                   )}
                 >
                   <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -836,7 +838,7 @@ function DayNavigator({
                   <span
                     className={cn(
                       "text-sm font-bold tabular-nums leading-none",
-                      active && "text-teal-700 dark:text-teal-300"
+                      active && "text-teal-800 dark:text-teal-200"
                     )}
                   >
                     {day.date.slice(-2)}
@@ -845,12 +847,12 @@ function DayNavigator({
                     className={cn(
                       "h-1.5 w-1.5 rounded-full",
                       full
-                        ? "bg-emerald-500"
+                        ? "bg-emerald-600 dark:bg-emerald-400"
                         : partial
-                          ? "bg-amber-500"
+                          ? "bg-amber-600 dark:bg-amber-400"
                           : day.entryCount > 0
-                            ? "bg-rose-400"
-                            : "bg-muted-foreground/25"
+                            ? "bg-rose-600 dark:bg-rose-400"
+                            : "bg-muted-foreground/40"
                     )}
                   />
                 </button>
@@ -899,7 +901,9 @@ function QuickLogCard({
     <div
       className={cn(
         "flex flex-col gap-3 rounded-2xl border bg-card p-4 shadow-sm transition",
-        hit ? "border-emerald-400/60" : "border-border"
+        hit
+          ? "border-emerald-600/60 dark:border-emerald-400/60"
+          : "border-border"
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -911,7 +915,7 @@ function QuickLogCard({
           </p>
         </div>
         {hit ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200">
             <Check className="h-3 w-3" /> Hit
           </span>
         ) : null}
@@ -929,7 +933,9 @@ function QuickLogCard({
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              hit ? "bg-emerald-500" : "bg-teal-500"
+              hit
+                ? "bg-emerald-600 dark:bg-emerald-400"
+                : "bg-teal-600 dark:bg-teal-400"
             )}
             style={{ width: `${Math.min(100, progress)}%` }}
           />

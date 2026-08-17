@@ -53,7 +53,7 @@ export default function LoginPage() {
       >
         <div className="rounded-2xl border border-white/60 bg-white/95 p-8 shadow-xl shadow-black/10 backdrop-blur-md dark:border-border dark:bg-card/95 sm:p-10">
           <div className="mb-8 flex flex-col items-center text-center">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-600 to-emerald-500 shadow-lg shadow-teal-600/30">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-700 to-emerald-600 shadow-lg shadow-teal-700/30">
               <Activity className="h-8 w-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold tracking-tight">TrackDash</h1>
@@ -114,7 +114,8 @@ export default function LoginPage() {
             <Button
               type="submit"
               loading={loading}
-              className="mt-2 h-11 w-full rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-lg shadow-teal-600/25 hover:brightness-105 hover:bg-transparent"
+              /* -700 rather than -600: white on teal/emerald-600 is ~3.2:1. */
+              className="mt-2 h-11 w-full rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 text-white shadow-lg shadow-teal-700/25 hover:brightness-110 hover:bg-transparent"
             >
               {loading ? "Signing in..." : "Sign in"}
             </Button>

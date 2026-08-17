@@ -106,8 +106,9 @@ function DeltaChip({ pct, label, higherIsBetter = true }: StatDelta) {
         "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums",
         good === null && "bg-muted text-muted-foreground",
         good === true &&
-          "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-        good === false && "bg-rose-500/12 text-rose-700 dark:text-rose-300"
+          "bg-emerald-500/12 text-emerald-800 dark:bg-emerald-400/12 dark:text-emerald-300",
+        good === false &&
+          "bg-rose-500/12 text-rose-800 dark:bg-rose-400/12 dark:text-rose-300"
       )}
     >
       <Icon className="h-3 w-3" />
@@ -125,7 +126,7 @@ export function ProgressRing({
   caption,
   size = 132,
   stroke = 12,
-  color = "#14b8a6",
+  color = "#0d9488",
 }: {
   /** 0–100. */
   value: number;
@@ -150,6 +151,8 @@ export function ProgressRing({
           role="img"
           aria-label={`${label ?? "Progress"}: ${clamped}%`}
         >
+          {/* Track uses the same step as progress bars so the ring reads as
+              part of the same system on both themes. */}
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -200,17 +203,24 @@ export type HeatmapDay = {
   title: string;
 };
 
+/**
+ * Six-step ramp. Step 0 is the neutral track; the rest climb in both saturation
+ * and darkness in light mode (and lightness in dark mode), so adjacent steps
+ * stay tellable apart on either surface.
+ */
 const HEAT_STEPS = [
   "bg-muted",
-  "bg-teal-500/25",
-  "bg-teal-500/45",
-  "bg-teal-500/65",
-  "bg-teal-500/85",
-  "bg-teal-600",
+  "bg-teal-600/25 dark:bg-teal-400/25",
+  "bg-teal-600/45 dark:bg-teal-400/45",
+  "bg-teal-600/65 dark:bg-teal-400/65",
+  "bg-teal-600/85 dark:bg-teal-400/85",
+  "bg-teal-700 dark:bg-teal-300",
 ] as const;
 
 function heatClass(intensity: number) {
-  if (intensity < 0) return "bg-transparent border border-dashed border-border";
+  if (intensity < 0) {
+    return "bg-transparent border border-dashed border-muted-foreground/40";
+  }
   if (intensity <= 0) return HEAT_STEPS[0];
   const step = Math.min(
     HEAT_STEPS.length - 1,
@@ -353,7 +363,7 @@ export function RateBars({
               className="h-full rounded-full transition-all duration-500"
               style={{
                 width: `${Math.min(100, Math.max(row.pct > 0 ? 3 : 0, row.pct))}%`,
-                background: row.color ?? "#14b8a6",
+                background: row.color ?? "#0d9488",
               }}
             />
           </div>

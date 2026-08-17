@@ -43,7 +43,7 @@ export function Header({ user, onToggleMobile }: HeaderProps) {
             <p className="truncate text-sm font-bold tracking-tight sm:text-base">
               TrackDash
             </p>
-            <p className="hidden truncate text-[11px] text-white/70 sm:block">
+            <p className="hidden truncate text-[11px] text-white/80 sm:block">
               Personal progress tracker
             </p>
           </div>
@@ -68,7 +68,7 @@ export function Header({ user, onToggleMobile }: HeaderProps) {
             <p className="truncate text-sm font-semibold leading-tight">
               {user.name}
             </p>
-            <p className="truncate text-[11px] capitalize text-white/70">
+            <p className="truncate text-[11px] capitalize text-white/80">
               {user.role} · @{user.username}
             </p>
           </div>

@@ -99,7 +99,8 @@ export function AppChrome({
           user={user}
           onToggleMobile={() => setMobileOpen((o) => !o)}
         />
-        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[var(--mx-off)]">
+        {/* Page sits one step behind cards so every panel reads as raised. */}
+        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-background">
           {children}
         </main>
       </div>

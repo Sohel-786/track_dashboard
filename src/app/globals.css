@@ -1,50 +1,76 @@
 @import "tailwindcss";
 
+/*
+ * next-themes is configured with `attribute="class"`, so the theme is driven by
+ * a `.dark` class on <html>. Tailwind v4 defaults `dark:` to
+ * `@media (prefers-color-scheme: dark)`, which ignores that class entirely —
+ * every `dark:` utility would follow the OS instead of the in-app toggle, so a
+ * user on a dark OS saw pale dark-mode text on light-mode white cards.
+ * This binds `dark:` to the class the toggle actually sets.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Palette is contrast-audited — see scripts/check-contrast.ts, which asserts
+ * WCAG AA (4.5:1) for every text pair and 3:1 for meaningful graphics in both
+ * themes. Change a value here and re-run that script.
+ *
+ * Surfaces are layered: the page (`--background`) sits *behind* cards
+ * (`--card`), so a card always reads as a raised panel rather than blending
+ * into the page. `--muted` is the third step, for tracks, chips and inputs.
+ */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
+  --background: 214 32% 94%;
+  --foreground: 222 47% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
+  --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 173 80% 30%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 173 80% 26%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 32% 91%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 214 32% 91%;
+  --muted-foreground: 215 25% 35%;
+  --accent: 214 32% 89%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 72% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 25% 84%;
+  --input: 214 25% 84%;
   --ring: 173 80% 30%;
   --radius: 0.75rem;
-  --mx-off: #f7f9fc;
+  --mx-off: hsl(214 32% 94%);
+  --surface-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.06),
+    0 1px 3px 0 rgb(15 23 42 / 0.08);
+  --surface-shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.1),
+    0 2px 6px -2px rgb(15 23 42 / 0.06);
 }
 
 .dark {
-  --background: 222.2 84% 4.9%;
+  --background: 222 47% 6%;
   --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
+  --card: 222 38% 14%;
   --card-foreground: 210 40% 98%;
-  --popover: 222.2 84% 4.9%;
+  --popover: 222 38% 14%;
   --popover-foreground: 210 40% 98%;
-  --primary: 173 70% 40%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 217.2 32.6% 17.5%;
+  --primary: 173 68% 28%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 217 30% 22%;
   --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
+  --muted: 217 30% 22%;
+  --muted-foreground: 215 22% 72%;
+  --accent: 217 30% 26%;
   --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 173 70% 40%;
-  --mx-off: #0d1117;
+  --destructive: 0 63% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 27% 28%;
+  --input: 217 27% 28%;
+  --ring: 173 70% 45%;
+  --mx-off: hsl(222 47% 6%);
+  --surface-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.5), 0 1px 3px 0 rgb(0 0 0 / 0.4);
+  --surface-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6),
+    0 2px 6px -2px rgb(0 0 0 / 0.45);
 }
 
 @theme inline {
@@ -68,8 +94,15 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
   --radius-lg: var(--radius);
-  --shadow-premium: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.5);
+  /*
+   * Tailwind's stock shadows are black at low alpha, which disappears on a
+   * dark page. Routing the scale through theme-aware tokens keeps every
+   * existing `shadow-sm` / `shadow-md` card readable in both themes.
+   */
+  --shadow-xs: var(--surface-shadow);
+  --shadow-sm: var(--surface-shadow);
+  --shadow-md: var(--surface-shadow-md);
+  --shadow-lg: var(--surface-shadow-md);
 }
 
 body {
@@ -110,16 +143,6 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--primary));
-}
-
-.glass {
-  background: hsla(var(--background), 0.7);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid hsla(var(--border), 0.5);
-}
-
-.premium-glow {
-  box-shadow: var(--shadow-glow);
 }
 
 @keyframes slow-pulse {
