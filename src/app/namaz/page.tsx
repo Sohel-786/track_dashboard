@@ -12,7 +12,16 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 
-type NamazTab = "today" | "kaza";
+type NamazTab = "today" | "kaza" | "insights";
+
+const TAB_COPY: Record<NamazTab, string> = {
+  today:
+    "Ahmedabad prayer times and today’s checklist. Every prayer of today can be recorded as prayed on time — or as Kaza — right up to midnight.",
+  kaza:
+    "Make up prayers from days that have already closed. Filter by date or prayer, open a day in place, and record each make-up.",
+  insights:
+    "On-time rate, consistency, streaks and extras — measured only over days that have finished.",
+};
 
 export default function NamazPage() {
   const [tab, setTab] = useState<NamazTab>("today");
@@ -25,14 +34,7 @@ export default function NamazPage() {
 
   return (
     <PageShell>
-      <PageHeader
-        title="Namaz"
-        description={
-          tab === "today"
-            ? "Ahmedabad next namaz, Madhab for times, and today’s checklist. Same-day Kaza on cards; past days under the Kaza tab."
-            : "Make up missed prayers from previous days. Click a date square (dd/mm/yyyy), review what was missed, and mark each Kaza as you complete it."
-        }
-      />
+      <PageHeader title="Namaz" description={TAB_COPY[tab]} />
 
       <Tabs
         value={tab}
@@ -55,17 +57,22 @@ export default function NamazPage() {
             </span>
             <span className="text-[10px] font-medium opacity-70">Past days</span>
           </TabsTrigger>
+          <TabsTrigger value="insights">
+            <span className="text-sm font-bold tracking-tight">Insights</span>
+            <span className="text-[10px] font-medium opacity-70">Analytics</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="today" className="space-y-6">
           <NamazTracker onChanged={bump} />
-          <div className="border-t border-border pt-6">
-            <NamazDashboard refreshKey={refreshKey} />
-          </div>
         </TabsContent>
 
         <TabsContent value="kaza">
           <NamazKaza refreshKey={refreshKey} onChanged={bump} active />
+        </TabsContent>
+
+        <TabsContent value="insights">
+          <NamazDashboard refreshKey={refreshKey} />
         </TabsContent>
       </Tabs>
     </PageShell>

@@ -6,36 +6,55 @@ import { authErrorResponse, requireSession } from "@/lib/auth";
 import { fail, ok } from "@/lib/api-helpers";
 
 import { getTrackingStartDate, isValidIsoDate } from "@/lib/date-ranges";
-import { NAMAZ_PRAYERS, isNamazPrayer } from "@/lib/namaz";
-import { collectMissed } from "@/lib/namaz-analytics";
+import { NAMAZ_PRAYERS, NAMAZ_PRAYER_META, isNamazPrayer } from "@/lib/namaz";
+import {
+  collectGraceToday,
+  collectMissed,
+  type KazaMissedItem,
+} from "@/lib/namaz-analytics";
 import { getUserNamazMadhab } from "@/lib/namaz-user";
 import {
   getNamazScheduleSnapshot,
   getNamazTodayIso,
   hasPrayerWindowEnded,
 } from "@/lib/prayer-times";
+import type { NamazMadhabId } from "@/lib/namaz-madhab";
 
-const kazaSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  prayer: z.enum(NAMAZ_PRAYERS),
+const extrasSchema = {
   sunnah: z.boolean().optional(),
   tasbeeh: z.boolean().optional(),
   zamaat: z.boolean().optional(),
+};
+
+const singleSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  prayer: z.enum(NAMAZ_PRAYERS),
+  ...extrasSchema,
 });
 
-function mapLogs(
-  logs: Array<{
-    date: string;
-    prayer: string;
-    prayed: boolean;
-    sunnah: boolean;
-    tasbeeh: boolean;
-    zamaat?: boolean;
-    isKaza?: boolean;
-    prayedAt?: Date | null;
-    kazaAt?: Date | null;
-  }>
-) {
+/** Bulk make-up: every outstanding prayer on one day, or an explicit list. */
+const bulkSchema = z.object({
+  items: z.array(singleSchema).min(1).max(50),
+});
+
+const undoSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  prayer: z.enum(NAMAZ_PRAYERS),
+});
+
+type StoredLog = {
+  date: string;
+  prayer: string;
+  prayed: boolean;
+  sunnah: boolean;
+  tasbeeh: boolean;
+  zamaat?: boolean;
+  isKaza?: boolean;
+  prayedAt?: Date | null;
+  kazaAt?: Date | null;
+};
+
+function mapLogs(logs: StoredLog[]) {
   return logs.map((l) => ({
     date: l.date,
     prayer: l.prayer,
@@ -49,9 +68,106 @@ function mapLogs(
   }));
 }
 
+export type NamazKazaStats = {
+  pending: number;
+  days: number;
+  oldestDate: string | null;
+  oldestDaysAgo: number;
+  byPrayer: Array<{ prayer: string; label: string; count: number }>;
+};
+
+function buildStats(outstanding: KazaMissedItem[]): NamazKazaStats {
+  const days = new Set(outstanding.map((m) => m.date));
+  const oldest = outstanding.reduce<KazaMissedItem | null>(
+    (acc, m) => (!acc || m.date < acc.date ? m : acc),
+    null
+  );
+  return {
+    pending: outstanding.length,
+    days: days.size,
+    oldestDate: oldest?.date ?? null,
+    oldestDaysAgo: oldest?.daysAgo ?? 0,
+    byPrayer: NAMAZ_PRAYERS.map((prayer) => ({
+      prayer,
+      label: NAMAZ_PRAYER_META[prayer].label,
+      count: outstanding.filter((m) => m.prayer === prayer).length,
+    })),
+  };
+}
+
+/** Recently completed make-ups, newest first — powers the undo list. */
+function recentKaza(logs: ReturnType<typeof mapLogs>, limit = 30) {
+  return logs
+    .filter((l) => l.prayed && l.isKaza)
+    .sort((a, b) => {
+      const aAt = a.kazaAt ? new Date(a.kazaAt).getTime() : 0;
+      const bAt = b.kazaAt ? new Date(b.kazaAt).getTime() : 0;
+      return bAt - aAt || b.date.localeCompare(a.date);
+    })
+    .slice(0, limit)
+    .map((l) => ({
+      date: l.date,
+      prayer: l.prayer,
+      label: NAMAZ_PRAYER_META[l.prayer as keyof typeof NAMAZ_PRAYER_META]
+        ?.label ?? l.prayer,
+      kazaAt: l.kazaAt ? new Date(l.kazaAt).toISOString() : null,
+      sunnah: Boolean(l.sunnah),
+      tasbeeh: Boolean(l.tasbeeh),
+      zamaat: Boolean(l.zamaat),
+    }));
+}
+
 /**
- * Outstanding Kaza queue — prayers whose end time has passed and are still open.
+ * Kaza workspace payload.
+ * `outstanding` holds **past days only** — today's closed windows are still in
+ * their same-day on-time grace and are returned separately as `graceToday`.
  */
+async function buildQueue(userId: string, now: Date, madhabId: NamazMadhabId) {
+  const today = getNamazTodayIso(now);
+  const trackingStart = getTrackingStartDate();
+  const schedule = getNamazScheduleSnapshot(now, madhabId);
+
+  if (today < trackingStart) {
+    return {
+      trackingStart,
+      madhabId,
+      schedule,
+      outstanding: [] as KazaMissedItem[],
+      count: 0,
+      graceToday: [] as KazaMissedItem[],
+      recent: [] as ReturnType<typeof recentKaza>,
+      stats: buildStats([]),
+    };
+  }
+
+  const logs = mapLogs(
+    await NamazLog.find({
+      userId,
+      date: { $gte: trackingStart, $lte: today },
+    }).lean()
+  );
+
+  const outstanding = collectMissed(
+    trackingStart,
+    today,
+    logs,
+    now,
+    trackingStart,
+    madhabId
+  ).reverse();
+
+  return {
+    trackingStart,
+    madhabId,
+    schedule,
+    outstanding,
+    count: outstanding.length,
+    graceToday: collectGraceToday(logs, now, trackingStart, madhabId),
+    recent: recentKaza(logs),
+    stats: buildStats(outstanding),
+  };
+}
+
 export async function GET() {
   try {
     const session = await requireSession();
@@ -59,130 +175,153 @@ export async function GET() {
 
     const now = new Date();
     const madhabId = await getUserNamazMadhab(session.sub);
-    const today = getNamazTodayIso(now);
-    const trackingStart = getTrackingStartDate();
-    const schedule = getNamazScheduleSnapshot(now, madhabId);
-
-    if (today < trackingStart) {
-      return ok({
-        trackingStart,
-        madhabId,
-        schedule,
-        outstanding: [] as ReturnType<typeof collectMissed>,
-        count: 0,
-      });
-    }
-
-    const logs = await NamazLog.find({
-      userId: session.sub,
-      date: { $gte: trackingStart, $lte: today },
-    }).lean();
-
-    const outstanding = collectMissed(
-      trackingStart,
-      today,
-      mapLogs(logs),
-      now,
-      trackingStart,
-      madhabId
-    ).reverse();
-
-    return ok({
-      trackingStart,
-      madhabId,
-      schedule,
-      outstanding,
-      count: outstanding.length,
-    });
+    return ok(await buildQueue(session.sub, now, madhabId));
   } catch (error) {
     return authErrorResponse(error);
   }
 }
 
-/** Complete a prayer as Kaza only after its end time (adhan / server clock). */
+type KazaWrite = z.infer<typeof singleSchema>;
+
+/**
+ * Validate + persist one make-up. Returns an error string, or null on success.
+ * Kept separate so bulk writes reuse exactly the same rules.
+ */
+async function applyKaza(
+  userId: string,
+  item: KazaWrite,
+  now: Date,
+  today: string,
+  trackingStart: string,
+  madhabId: NamazMadhabId
+): Promise<string | null> {
+  const { date, prayer } = item;
+  if (!isValidIsoDate(date) || !isNamazPrayer(prayer)) {
+    return "Invalid date or prayer";
+  }
+  if (date > today) return "Cannot make up future prayers.";
+  if (date < trackingStart) {
+    return `Tracking starts on ${trackingStart}. Earlier days cannot be made up.`;
+  }
+  if (!hasPrayerWindowEnded(prayer, date, now, madhabId)) {
+    return "Kaza is only allowed after this prayer’s end time.";
+  }
+
+  const existing = await NamazLog.findOne({ userId, date, prayer });
+  if (existing?.prayed && !existing.isKaza) {
+    return "This prayer was already logged on time.";
+  }
+  if (existing?.prayed && existing.isKaza) {
+    return "This Kaza is already completed.";
+  }
+
+  await NamazLog.findOneAndUpdate(
+    { userId, date, prayer },
+    {
+      $set: {
+        prayed: true,
+        isKaza: true,
+        sunnah: Boolean(item.sunnah),
+        tasbeeh: Boolean(item.tasbeeh),
+        zamaat: Boolean(item.zamaat),
+        prayedAt: existing?.prayedAt ?? now,
+        kazaAt: now,
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  return null;
+}
+
+/**
+ * Complete one prayer (`{date, prayer}`) or several at once (`{items: [...]}`)
+ * as Kaza. Only allowed after each prayer's end time (adhan / server clock).
+ */
 export async function PUT(request: NextRequest) {
   try {
     const session = await requireSession();
     await connectDB();
 
     const body = await request.json();
-    const parsed = kazaSchema.safeParse(body);
-    if (!parsed.success) return fail("Invalid kaza payload");
-
-    const { date, prayer } = parsed.data;
-    if (!isValidIsoDate(date) || !isNamazPrayer(prayer)) {
-      return fail("Invalid date or prayer");
+    const bulk = bulkSchema.safeParse(body);
+    const single = bulk.success ? null : singleSchema.safeParse(body);
+    if (!bulk.success && !single?.success) {
+      return fail("Invalid kaza payload");
     }
+
+    const items: KazaWrite[] = bulk.success
+      ? bulk.data.items
+      : [single!.data as KazaWrite];
 
     const now = new Date();
     const madhabId = await getUserNamazMadhab(session.sub);
     const today = getNamazTodayIso(now);
     const trackingStart = getTrackingStartDate();
 
-    if (date > today) {
-      return fail("Cannot make up future prayers.");
-    }
-    if (date < trackingStart) {
-      return fail(
-        `Tracking starts on ${trackingStart}. Earlier days cannot be made up.`
+    const errors: string[] = [];
+    let completed = 0;
+    for (const item of items) {
+      const error = await applyKaza(
+        session.sub,
+        item,
+        now,
+        today,
+        trackingStart,
+        madhabId
       );
-    }
-    if (!hasPrayerWindowEnded(prayer, date, now, madhabId)) {
-      return fail(
-        "Kaza is only allowed after this prayer’s end time. Use today’s checklist while the window is open."
-      );
+      if (error) {
+        errors.push(
+          `${NAMAZ_PRAYER_META[item.prayer].label} · ${item.date}: ${error}`
+        );
+      } else {
+        completed += 1;
+      }
     }
 
+    // A single-item request keeps its strict contract: nothing saved is an error.
+    if (completed === 0) {
+      return fail(errors[0] ?? "Nothing could be saved");
+    }
+
+    return ok({
+      ...(await buildQueue(session.sub, now, madhabId)),
+      completed,
+      skipped: errors.length,
+      errors,
+    });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+}
+
+/** Undo a make-up recorded by mistake — removes the Kaza log for that slot. */
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await requireSession();
+    await connectDB();
+
+    const parsed = undoSchema.safeParse(await request.json());
+    if (!parsed.success) return fail("Invalid undo payload");
+
+    const { date, prayer } = parsed.data;
     const existing = await NamazLog.findOne({
       userId: session.sub,
       date,
       prayer,
     });
-
-    if (existing?.prayed && !existing.isKaza) {
-      return fail("This prayer was already logged on time.");
-    }
-    if (existing?.prayed && existing.isKaza) {
-      return fail("This Kaza is already completed.");
+    if (!existing) return fail("Nothing to undo for that prayer", 404);
+    if (!existing.isKaza) {
+      return fail("Only Kaza entries can be undone here.");
     }
 
-    await NamazLog.findOneAndUpdate(
-      { userId: session.sub, date, prayer },
-      {
-        $set: {
-          prayed: true,
-          isKaza: true,
-          sunnah: Boolean(parsed.data.sunnah),
-          tasbeeh: Boolean(parsed.data.tasbeeh),
-          zamaat: Boolean(parsed.data.zamaat),
-          prayedAt: existing?.prayedAt ?? now,
-          kazaAt: now,
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    await NamazLog.deleteOne({ _id: existing._id });
 
-    const logs = await NamazLog.find({
-      userId: session.sub,
-      date: { $gte: trackingStart, $lte: today },
-    }).lean();
-
-    const outstanding = collectMissed(
-      trackingStart,
-      today,
-      mapLogs(logs),
-      now,
-      trackingStart,
-      madhabId
-    ).reverse();
-
+    const now = new Date();
+    const madhabId = await getUserNamazMadhab(session.sub);
     return ok({
-      trackingStart,
-      madhabId,
-      schedule: getNamazScheduleSnapshot(now, madhabId),
-      completed: { date, prayer, isKaza: true },
-      outstanding,
-      count: outstanding.length,
+      ...(await buildQueue(session.sub, now, madhabId)),
+      undone: { date, prayer },
     });
   } catch (error) {
     return authErrorResponse(error);

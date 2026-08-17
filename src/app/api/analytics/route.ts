@@ -13,8 +13,11 @@ import {
 import {
   buildCategoryDailySeries,
   buildCategoryProgress,
+  buildDailyTargetHits,
   buildTrend,
   computeKpis,
+  deltaPct,
+  previousRange,
 } from "@/lib/analytics";
 
 const QUICK_RANGES: AnalyticsQuickRange[] = [
@@ -61,7 +64,9 @@ export async function GET(request: NextRequest) {
 
     const categoryIds = categories.map((c) => c._id);
 
-    const [rangeEntries, yearEntries] = await Promise.all([
+    const prev = previousRange(from, to);
+
+    const [rangeEntries, yearEntries, prevEntries] = await Promise.all([
       Entry.find({
         userId: session.sub,
         categoryId: { $in: categoryIds },
@@ -74,6 +79,11 @@ export async function GET(request: NextRequest) {
           $gte: resolveAnalyticsQuickRange("year").from,
           $lte: todayIso(),
         },
+      }).lean(),
+      Entry.find({
+        userId: session.sub,
+        categoryId: { $in: categoryIds },
+        date: { $gte: prev.from, $lte: prev.to },
       }).lean(),
     ]);
 
@@ -98,15 +108,51 @@ export async function GET(request: NextRequest) {
       series: buildCategoryDailySeries(cat, rangeEntries, from, to),
     }));
 
+    const dailyTargetHits = buildDailyTargetHits(
+      categories,
+      rangeEntries,
+      from,
+      to
+    );
+    const prevHits = buildDailyTargetHits(
+      categories,
+      prevEntries,
+      prev.from,
+      prev.to
+    );
+
+    const prevRangeTotal = prevEntries.reduce((acc, e) => acc + e.value, 0);
+    const prevTargetsHit = prevHits.reduce((acc, d) => acc + d.hits, 0);
+    const targetsHit = dailyTargetHits.reduce((acc, d) => acc + d.hits, 0);
+    const daysOnTarget = dailyTargetHits.filter(
+      (d) => d.total > 0 && d.hits === d.total
+    ).length;
+
     return ok({
       appliedRange: { quick, from, to },
-      kpis,
+      previousRange: prev,
+      kpis: {
+        ...kpis,
+        /** Every (category, day) pair in range that met its daily target. */
+        dayTargetsHit: targetsHit,
+        dayTargetsPossible: dailyTargetHits.length * categories.length,
+        /** Days where *every* category met its target. */
+        perfectDays: daysOnTarget,
+        activeDays: dailyTargetHits.filter((d) => d.entryCount > 0).length,
+        rangeDays: dailyTargetHits.length,
+      },
+      deltas: {
+        rangeTotal: deltaPct(kpis.rangeTotal, prevRangeTotal),
+        dayTargetsHit: deltaPct(targetsHit, prevTargetsHit),
+        entryCount: deltaPct(kpis.entryCount, prevEntries.length),
+      },
       byCategory,
       trends: {
         day: trendDay,
         week: trendWeek,
         month: trendMonth,
       },
+      dailyTargetHits,
       progressiveByCategory,
     });
   } catch (error) {

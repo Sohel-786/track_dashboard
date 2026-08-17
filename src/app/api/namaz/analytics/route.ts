@@ -106,6 +106,10 @@ export async function GET(request: NextRequest) {
       kpis: {
         ...analytics.kpis,
         streak: withHistory.kpis.streak,
+        bestStreak: Math.max(
+          analytics.kpis.bestStreak,
+          withHistory.kpis.bestStreak
+        ),
       },
     });
   } catch (error) {

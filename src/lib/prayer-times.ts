@@ -53,15 +53,26 @@ export type PrayerScheduleSlot = {
   prayer: NamazPrayer;
   label: string;
   arabic: string;
+  /** Calendar day (YYYY-MM-DD) this window belongs to. */
+  date: string;
   startsAt: string;
   endsAt: string;
   startsAtLabel: string;
   endsAtLabel: string;
   phase: PrayerWindowPhase;
-  /** On-time checklist may be used only while phase === "open". */
+  /** True while the window itself is still running. */
   canMarkOnTime: boolean;
+  /**
+   * Window has ended but the prayer's own calendar day is still today, so an
+   * on-time entry may still be recorded (user prayed in time, forgot to tick).
+   * Expires at the next IST midnight.
+   */
+  canMarkOnTimeLate: boolean;
   /** Kaza is allowed only after the window has ended. */
   canMarkKaza: boolean;
+  /** Instant the late on-time grace closes (next IST midnight); null when N/A. */
+  graceEndsAt: string | null;
+  graceEndsAtLabel: string | null;
 };
 
 /**
@@ -79,6 +90,8 @@ export type NamazScheduleSnapshot = {
   /** Authoritative clock from the application server (not the user's device). */
   serverNow: string;
   today: string;
+  /** Next IST midnight — when today's late on-time grace closes. */
+  dayEndsAt: string;
   schedule: PrayerScheduleSlot[];
   /**
    * Present only between IST midnight and Fajr when yesterday's Isha has not
@@ -131,6 +144,16 @@ export function getNamazTodayIso(now = new Date()): string {
 /** Previous Ahmedabad calendar day relative to `now`. */
 export function getNamazYesterdayIso(now = new Date()): string {
   return shiftIsoDay(getNamazTodayIso(now), -1);
+}
+
+/**
+ * Instant at which `isoDay` ends in Ahmedabad (next IST midnight).
+ * Asia/Kolkata is a fixed UTC+05:30 offset with no DST, so 18:30 UTC of the
+ * same date is exactly midnight at the start of the following IST day.
+ */
+export function endOfNamazDay(isoDay: string): Date {
+  const [y, m, d] = isoDay.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 18, 30, 0));
 }
 
 export function formatInNamazTz(
@@ -215,23 +238,30 @@ function phaseFor(
 
 function slotFromWindow(
   prayer: NamazPrayer,
+  isoDay: string,
   start: Date,
   end: Date,
   now: Date
 ): PrayerScheduleSlot {
   const phase = phaseFor(now, start, end);
   const meta = NAMAZ_PRAYER_META[prayer];
+  const isToday = isoDay === getNamazTodayIso(now);
+  const graceEnds = isToday ? endOfNamazDay(isoDay) : null;
   return {
     prayer,
     label: meta.label,
     arabic: meta.arabic,
+    date: isoDay,
     startsAt: start.toISOString(),
     endsAt: end.toISOString(),
     startsAtLabel: formatInNamazTz(start),
     endsAtLabel: formatInNamazTz(end),
     phase,
     canMarkOnTime: phase === "open",
+    canMarkOnTimeLate: phase === "ended" && isToday,
     canMarkKaza: phase === "ended",
+    graceEndsAt: graceEnds ? graceEnds.toISOString() : null,
+    graceEndsAtLabel: graceEnds ? formatInNamazTz(graceEnds) : null,
   };
 }
 
@@ -254,7 +284,7 @@ export function getOvernightIshaCarryover(
 
   return {
     date: yesterday,
-    slot: slotFromWindow("isha", window.start, window.end, now),
+    slot: slotFromWindow("isha", yesterday, window.start, window.end, now),
   };
 }
 
@@ -278,6 +308,38 @@ export function resolveOpenOnTimeDate(
   return null;
 }
 
+/**
+ * May this prayer still be recorded as **prayed on time**?
+ *
+ * True while the window runs, and — as a grace period — for the rest of the
+ * prayer's own calendar day after the window ends, so a prayer that really was
+ * offered in time can still be ticked if the user forgot in the moment.
+ * Once the IST day rolls over the entry can only be completed as Kaza.
+ */
+export function canMarkOnTimeNow(
+  prayer: NamazPrayer,
+  isoDay: string,
+  now = new Date(),
+  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
+): boolean {
+  const { phase } = getPrayerWindow(prayer, isoDay, now, madhabId);
+  if (phase === "open") return true;
+  return phase === "ended" && isoDay === getNamazTodayIso(now);
+}
+
+/** True when the window ended but the same-day on-time grace is still running. */
+export function isInOnTimeGrace(
+  prayer: NamazPrayer,
+  isoDay: string,
+  now = new Date(),
+  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
+): boolean {
+  return (
+    isoDay === getNamazTodayIso(now) &&
+    hasPrayerWindowEnded(prayer, isoDay, now, madhabId)
+  );
+}
+
 export function getNamazScheduleSnapshot(
   now = new Date(),
   madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
@@ -287,13 +349,15 @@ export function getNamazScheduleSnapshot(
 
   const schedule: PrayerScheduleSlot[] = NAMAZ_PRAYERS.map((prayer) => {
     const { start, end } = windows[prayer];
-    return slotFromWindow(prayer, start, end, now);
+    return slotFromWindow(prayer, today, start, end, now);
   });
 
   return {
     location: locationWithMadhab(madhabId),
     serverNow: now.toISOString(),
     today,
+    /** Grace for today's already-ended windows closes at this instant. */
+    dayEndsAt: endOfNamazDay(today).toISOString(),
     schedule,
     overnightIsha: getOvernightIshaCarryover(now, madhabId),
   };

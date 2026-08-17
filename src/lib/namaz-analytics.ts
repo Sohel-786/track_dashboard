@@ -30,7 +30,10 @@ export type StoredNamazLog = {
 export type NamazSlotStatus =
   | "prayed"
   | "kaza"
+  /** Window ended and the day is over — only Kaza can clear it. */
   | "missed"
+  /** Window ended but it is still the prayer's own day — on time or Kaza. */
+  | "grace"
   | "pending"
   | "upcoming"
   | "open"
@@ -49,7 +52,11 @@ function statusFor(
   if (prayed && isKaza) return "kaza";
   if (prayed) return "prayed";
   // Window physics (not calendar midnight) decides missed vs open.
-  if (windowEnded) return "missed";
+  if (windowEnded) {
+    // Same-day grace: the prayer may still be recorded as prayed on time
+    // until this IST day ends. Only after that does it become a real miss.
+    return date === today ? "grace" : "missed";
+  }
   if (windowOpen) return "open";
   if (date === today) return "upcoming";
   if (date > today) return "pending";
@@ -121,6 +128,8 @@ export function buildDayStatus(
     prayedCount: prayers.filter((p) => p.status === "prayed").length,
     kazaCount: prayers.filter((p) => p.status === "kaza").length,
     missedCount: prayers.filter((p) => p.status === "missed").length,
+    /** Window closed but still recordable today (on time or Kaza). */
+    graceCount: prayers.filter((p) => p.status === "grace").length,
     pendingCount: prayers.filter(
       (p) =>
         p.status === "pending" ||
@@ -133,14 +142,45 @@ export function buildDayStatus(
 export type KazaMissedItem = {
   date: string;
   dayLabel: string;
+  /** Full weekday name, for the expanded Kaza panel header. */
+  weekday: string;
   prayer: NamazPrayer;
   label: string;
+  arabic: string;
+  /** Whole days elapsed since that prayer's day. 0 = today (grace). */
+  daysAgo: number;
+  /** True while it is still that prayer's own day (on-time entry allowed). */
+  inGrace: boolean;
 };
+
+function daysBetweenIso(from: string, to: string): number {
+  const a = parseISO(`${from}T00:00:00`).getTime();
+  const b = parseISO(`${to}T00:00:00`).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+function missedItem(date: string, prayer: NamazPrayer, today: string): KazaMissedItem {
+  const parsed = parseISO(`${date}T00:00:00`);
+  return {
+    date,
+    dayLabel: format(parsed, "EEE"),
+    weekday: format(parsed, "EEEE"),
+    prayer,
+    label: NAMAZ_PRAYER_META[prayer].label,
+    arabic: NAMAZ_PRAYER_META[prayer].arabic,
+    daysAgo: daysBetweenIso(date, today),
+    inGrace: date === today,
+  };
+}
 
 /**
  * Outstanding Kaza queue.
  * A prayer is outstanding only after its on-time window has ended
  * (Isha: next Fajr — not calendar midnight).
+ *
+ * Today's already-ended windows are excluded by default: they are still in the
+ * same-day grace period and belong on the Today checklist, not the Kaza queue.
+ * Pass `includeToday` to fold them in.
  */
 export function collectMissed(
   from: string,
@@ -148,9 +188,11 @@ export function collectMissed(
   logs: StoredNamazLog[],
   now = new Date(),
   trackingStart = getTrackingStartDate(),
-  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
+  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB,
+  options: { includeToday?: boolean } = {}
 ): KazaMissedItem[] {
   const today = getNamazTodayIso(now);
+  const includeToday = options.includeToday ?? false;
   const rangeStart = from < trackingStart ? trackingStart : from;
   const rangeEnd = to > today ? today : to;
   if (rangeStart > rangeEnd) return [];
@@ -162,21 +204,41 @@ export function collectMissed(
   const missed: KazaMissedItem[] = [];
 
   for (const date of eachDayIso(rangeStart, rangeEnd)) {
+    if (date > today) continue;
+    if (date === today && !includeToday) continue;
     for (const prayer of NAMAZ_PRAYERS) {
       if (completedSet.has(`${date}:${prayer}`)) continue;
-      if (date > today) continue;
       // Past calendar days still wait for window end (overnight Isha until Fajr).
       if (!hasPrayerWindowEnded(prayer, date, now, madhabId)) continue;
 
-      missed.push({
-        date,
-        dayLabel: format(parseISO(`${date}T00:00:00`), "EEE"),
-        prayer,
-        label: NAMAZ_PRAYER_META[prayer].label,
-      });
+      missed.push(missedItem(date, prayer, today));
     }
   }
   return missed;
+}
+
+/**
+ * Today's prayers whose window has closed but which can still be recorded —
+ * either as prayed on time (grace) or as Kaza — until the IST day ends.
+ */
+export function collectGraceToday(
+  logs: StoredNamazLog[],
+  now = new Date(),
+  trackingStart = getTrackingStartDate(),
+  madhabId: NamazMadhabId = DEFAULT_NAMAZ_MADHAB
+): KazaMissedItem[] {
+  const today = getNamazTodayIso(now);
+  if (today < trackingStart) return [];
+
+  const completedSet = new Set(
+    logs.filter((l) => l.prayed && l.date === today).map((l) => l.prayer)
+  );
+
+  return NAMAZ_PRAYERS.filter(
+    (prayer) =>
+      !completedSet.has(prayer) &&
+      hasPrayerWindowEnded(prayer, today, now, madhabId)
+  ).map((prayer) => missedItem(today, prayer, today));
 }
 
 function dayFullyCompleted(date: string, logs: StoredNamazLog[]) {
@@ -247,11 +309,19 @@ export function buildNamazAnalytics(input: {
     const rows = input.logs.filter(
       (l) => l.prayer === prayer && l.prayed && inRange(l.date)
     );
+    const onTime = rows.filter((l) => !l.isKaza).length;
+    const kaza = rows.filter((l) => l.isKaza).length;
+    const expected = pastDays.length;
     return {
       prayer,
       label: NAMAZ_PRAYER_META[prayer].label,
-      prayed: rows.filter((l) => !l.isKaza).length,
-      kaza: rows.filter((l) => l.isKaza).length,
+      prayed: onTime,
+      kaza,
+      /** Finalized (past) days in range — the denominator for the rates below. */
+      expected,
+      onTimePct: expected > 0 ? Math.round((onTime / expected) * 1000) / 10 : 0,
+      completedPct:
+        expected > 0 ? Math.round(((onTime + kaza) / expected) * 1000) / 10 : 0,
       sunnah: rows.filter((l) => l.sunnah).length,
       sunnahWithout: rows.filter((l) => !l.sunnah).length,
       tasbeeh: rows.filter((l) => l.tasbeeh).length,
@@ -280,9 +350,11 @@ export function buildNamazAnalytics(input: {
 
     let missedCount: number;
     let pendingCount: number;
+    let graceCount: number;
     if (prayerFilter) {
       const slot = status.prayers.find((p) => p.prayer === prayerFilter);
       missedCount = slot?.status === "missed" ? 1 : 0;
+      graceCount = slot?.status === "grace" ? 1 : 0;
       pendingCount =
         slot &&
         (slot.status === "pending" ||
@@ -292,8 +364,12 @@ export function buildNamazAnalytics(input: {
           : 0;
     } else {
       missedCount = status.missedCount;
+      graceCount = status.graceCount;
       pendingCount = status.pendingCount;
     }
+
+    const slotsInDay = prayerFilter ? 1 : NAMAZ_PRAYERS.length;
+    const isFinalized = date < today && date >= trackingStart;
 
     return {
       date,
@@ -302,8 +378,18 @@ export function buildNamazAnalytics(input: {
       prayed,
       kaza,
       missed: missedCount,
+      grace: graceCount,
       pending: pendingCount,
       completed: completed.length,
+      /** Slots expected that day, for heatmap intensity. */
+      slots: slotsInDay,
+      isFinalized,
+      onTimePct:
+        slotsInDay > 0 ? Math.round((prayed / slotsInDay) * 1000) / 10 : 0,
+      completedPct:
+        slotsInDay > 0
+          ? Math.round((completed.length / slotsInDay) * 1000) / 10
+          : 0,
       sunnahWith: completed.filter((l) => l.sunnah).length,
       sunnahWithout: completed.filter((l) => !l.sunnah).length,
       tasbeehWith: completed.filter((l) => l.tasbeeh).length,
@@ -349,9 +435,32 @@ export function buildNamazAnalytics(input: {
     cursor = prevIso(cursor);
   }
 
+  // Longest run of fully-completed days anywhere in the loaded history.
+  let bestStreak = 0;
+  let run = 0;
+  for (const date of eachDayIso(
+    trackingStart > from ? trackingStart : from,
+    to > today ? today : to
+  )) {
+    if (dayFullyCompleted(date, input.logs)) {
+      run += 1;
+      if (run > bestStreak) bestStreak = run;
+    } else if (date < today) {
+      run = 0;
+    }
+  }
+
   const completedPast = input.logs.filter(
     (l) =>
       l.prayed &&
+      l.date < today &&
+      inRange(l.date) &&
+      matchesPrayer(l.prayer)
+  ).length;
+  const onTimePast = input.logs.filter(
+    (l) =>
+      l.prayed &&
+      !l.isKaza &&
       l.date < today &&
       inRange(l.date) &&
       matchesPrayer(l.prayer)
@@ -361,6 +470,17 @@ export function buildNamazAnalytics(input: {
     finalizedExpected > 0
       ? Math.round((completedPast / finalizedExpected) * 1000) / 10
       : 0;
+  const onTimePct =
+    finalizedExpected > 0
+      ? Math.round((onTimePast / finalizedExpected) * 1000) / 10
+      : 0;
+
+  const graceToday = collectGraceToday(
+    input.logs,
+    now,
+    trackingStart,
+    madhabId
+  ).filter((g) => !prayerFilter || g.prayer === prayerFilter);
 
   return {
     trackingStart,
@@ -370,8 +490,11 @@ export function buildNamazAnalytics(input: {
       kazaInRange: prayedKaza.length,
       completedInRange: completedLogs.length,
       missedInRange: missed.length,
+      graceTodayCount: graceToday.length,
       completionPct,
+      onTimePct,
       streak,
+      bestStreak,
       sunnahInRange: sunnahWith,
       sunnahWithoutInRange: sunnahWithout,
       tasbeehInRange: tasbeehWith,
@@ -380,6 +503,7 @@ export function buildNamazAnalytics(input: {
       zamaatWithoutInRange: zamaatWithout,
       finalizedExpected,
     },
+    graceToday,
     byPrayer,
     daily,
     extrasShare: {

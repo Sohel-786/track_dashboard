@@ -250,6 +250,87 @@ export function computeKpis(
   };
 }
 
+export type DayTargetHit = {
+  date: string;
+  dayLabel: string;
+  weekday: string;
+  /** Categories that met their daily target that day. */
+  hits: number;
+  total: number;
+  pct: number;
+  /** Sum of every entry logged that day. */
+  value: number;
+  entryCount: number;
+};
+
+/**
+ * Per-day target attainment across all categories — the series behind the
+ * consistency heatmap and the "days on target" trend.
+ */
+export function buildDailyTargetHits(
+  categories: Pick<ICategory, "_id" | "target">[],
+  entries: Pick<IEntry, "categoryId" | "value" | "date">[],
+  from: string,
+  to: string
+): DayTargetHit[] {
+  const dayMap = dayTotalsByCategory(entries);
+  const totals = new Map<string, { value: number; count: number }>();
+  for (const e of entries) {
+    const row = totals.get(e.date) ?? { value: 0, count: 0 };
+    row.value += e.value;
+    row.count += 1;
+    totals.set(e.date, row);
+  }
+
+  return eachDayIso(from, to).map((date) => {
+    let hits = 0;
+    for (const cat of categories) {
+      const dayTotal = dayMap.get(`${String(cat._id)}|${date}`) ?? 0;
+      if (cat.target > 0 && dayTotal >= cat.target) hits += 1;
+    }
+    const row = totals.get(date);
+    const total = categories.length;
+    return {
+      date,
+      dayLabel: format(new Date(`${date}T00:00:00`), "dd MMM"),
+      weekday: format(new Date(`${date}T00:00:00`), "EEE"),
+      hits,
+      total,
+      pct: total > 0 ? Math.round((hits / total) * 1000) / 10 : 0,
+      value: row?.value ?? 0,
+      entryCount: row?.count ?? 0,
+    };
+  });
+}
+
+/**
+ * The equally-long window immediately before `from`, used for period-over-period
+ * deltas on the KPI tiles.
+ */
+export function previousRange(
+  from: string,
+  to: string
+): { from: string; to: string } {
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  const lengthDays =
+    Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - (lengthDays - 1));
+  return {
+    from: format(prevStart, "yyyy-MM-dd"),
+    to: format(prevEnd, "yyyy-MM-dd"),
+  };
+}
+
+/** Percentage change from `previous` to `current`; 0 when both are empty. */
+export function deltaPct(current: number, previous: number): number {
+  if (previous === 0) return current === 0 ? 0 : 100;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
 /**
  * Daily totals for a category (not cumulative) — plotted against the daily target.
  */

@@ -9,6 +9,7 @@ import { NAMAZ_PRAYERS, isNamazPrayer } from "@/lib/namaz";
 import { buildDayStatus } from "@/lib/namaz-analytics";
 import { getUserNamazMadhab } from "@/lib/namaz-user";
 import {
+  canMarkOnTimeNow,
   getNamazScheduleSnapshot,
   getNamazTodayIso,
   isPrayerWindowOpen,
@@ -84,15 +85,19 @@ async function buildChecklistPayload(
     madhabId
   );
 
+  const slotByPrayer = new Map(schedule.schedule.map((s) => [s.prayer, s]));
+
   const prayers: Array<
     (typeof day.prayers)[number] & {
       logDate: string;
       isOvernightCarryover: boolean;
+      slot: (typeof schedule.schedule)[number] | null;
     }
   > = day.prayers.map((p) => ({
     ...p,
     logDate: date,
     isOvernightCarryover: false,
+    slot: slotByPrayer.get(p.prayer) ?? null,
   }));
 
   const carryover = schedule.overnightIsha;
@@ -116,6 +121,7 @@ async function buildChecklistPayload(
         ...ishaRow,
         logDate: carryover.date,
         isOvernightCarryover: true,
+        slot: carryover.slot,
         label: "Isha",
         windowHint: `From ${carryover.date} · still on time until Fajar`,
       });
@@ -125,6 +131,7 @@ async function buildChecklistPayload(
   const prayedCount = prayers.filter((p) => p.status === "prayed").length;
   const kazaCount = prayers.filter((p) => p.status === "kaza").length;
   const missedCount = prayers.filter((p) => p.status === "missed").length;
+  const graceCount = prayers.filter((p) => p.status === "grace").length;
   const pendingCount = prayers.filter(
     (p) =>
       p.status === "pending" ||
@@ -138,6 +145,7 @@ async function buildChecklistPayload(
     prayedCount,
     kazaCount,
     missedCount,
+    graceCount,
     pendingCount,
     madhabId,
     schedule,
@@ -185,15 +193,25 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // On-time writes must land on a date whose window is currently open.
+    /**
+     * On-time writes are allowed while the window runs and, as a grace period,
+     * for the remainder of that prayer's own day — a prayer offered in time can
+     * still be ticked if the user forgot in the moment. After the IST day rolls
+     * over it can only be cleared as Kaza.
+     */
+    const windowOpen = isPrayerWindowOpen(prayer, date, now, madhabId);
+    const onTimeAllowed = canMarkOnTimeNow(prayer, date, now, madhabId);
+
     if (prayed) {
-      if (!isPrayerWindowOpen(prayer, date, now, madhabId)) {
+      if (!onTimeAllowed) {
         return fail(
-          "This prayer’s on-time window has ended (or not started). Use Kaza after the end time."
+          date < today
+            ? "That day has ended — complete this prayer from the Kaza section."
+            : "This prayer’s window has not started yet."
         );
       }
       // Reject spoofed dates that are open for a different prayer but not this flow.
-      if (resolvedOpen && date !== resolvedOpen) {
+      if (windowOpen && resolvedOpen && date !== resolvedOpen) {
         return fail(
           "That date is not the active on-time window for this prayer."
         );
@@ -210,11 +228,12 @@ export async function PUT(request: NextRequest) {
         date,
         prayer,
       });
-      if (existing?.isKaza) {
+      // A same-day Kaza can be undone here; older ones live in the Kaza section.
+      if (existing?.isKaza && !onTimeAllowed) {
         return fail("Kaza entries can only be managed from the Kaza section.");
       }
-      if (existing && !isPrayerWindowOpen(prayer, date, now, madhabId)) {
-        return fail("Cannot uncheck after the prayer window has ended.");
+      if (existing && !onTimeAllowed) {
+        return fail("That day has ended — this entry can no longer be changed.");
       }
       await NamazLog.findOneAndDelete({
         userId: session.sub,
