@@ -26,30 +26,89 @@ and stops the moment the prayer is marked or the window closes.
 The notification carries a **Mark prayed** button that writes the entry straight
 from the service worker, without opening the app.
 
-### Setup
+### Where the four values come from
 
-1. Generate a VAPID keypair once:
+**There is no VAPID account and nothing to sign up for.** VAPID is just a
+keypair you generate on your own machine; the push services (Google, Mozilla,
+Apple) verify the signature and never ask who you are. So there is no portal,
+no dashboard and no login for any of this.
+
+#### 1. `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`
+
+Run this once, anywhere — it needs no network and creates no account:
 
 ```bash
 npx web-push generate-vapid-keys
 ```
 
-2. Add to the environment (locally in `.env.local`, on Vercel in project
-   settings):
+It prints something like:
+
+```
+Public Key:
+BPyjIDKCmW4aJXVky_uhDEB5QsK94Ea5nMnrb9BusCAw44iK_GbfcaMlxLOqVHTX_d654xzL1rjpcymKBzEGCMg
+
+Private Key:
+9MoIYY...
+```
+
+- The **public** key is handed to the browser when a device turns reminders on.
+  It is what tells that browser "only the server holding the matching private
+  key may push to me".
+- The **private** key stays on the server and signs every push. Treat it like a
+  password: never commit it, never expose it to the browser.
+- They are a matched pair — **regenerating them invalidates every device that
+  already subscribed**, and each one has to toggle reminders off and on again.
+  Generate once and keep them.
+
+`.env.local` already holds a working pair for local development. Generate a
+**separate** pair for production rather than reusing the local one.
+
+#### 2. `VAPID_SUBJECT`
+
+Not a login — just a contact URI the push services use to reach the operator if
+a server starts sending abusive or broken pushes. It must be a `mailto:` URI or
+an `https://` URL:
 
 ```env
-VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_SUBJECT=mailto:you@example.com
-CRON_SECRET=<32+ random chars>
+VAPID_SUBJECT=mailto:ss1036425@gmail.com
+```
+
+That is the only place an email appears anywhere in the app.
+
+#### 3. `CRON_SECRET`
+
+A random string you invent. It is the password on `/api/notifications/run`, so
+the internet cannot trigger a notification flood. Generate one with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Use a **different** value in production from the local one.
+
+#### 4. Put them in the environment
+
+Locally they go in `.env.local` (already done). For production, in
+**Vercel → Project → Settings → Environment Variables**, add all four for
+Production, Preview and Development, then **Redeploy** — new env values only
+apply after a redeploy.
+
+```env
+VAPID_PUBLIC_KEY=<public key from step 1>
+VAPID_PRIVATE_KEY=<private key from step 1>
+VAPID_SUBJECT=mailto:ss1036425@gmail.com
+CRON_SECRET=<random string from step 3>
 ```
 
 Without these the feature stays hidden: the reminder toggle is simply not
 rendered and nothing else changes.
 
-3. Turn it on per device: open **/namaz** and flip **Prayer reminders**. Each
-   phone, tablet and desktop registers separately; the send button next to the
-   toggle fires a test notification so you can confirm delivery.
+#### 5. Turn it on per device
+
+Open **/namaz** and flip **Prayer reminders**. The browser asks for permission
+once; allow it. Each phone, tablet and desktop registers separately, so do this
+on every device you want nudged. The send button next to the toggle fires a
+test notification so you can confirm delivery straight away.
 
 > On iOS, Web Push only works once the site is **added to the Home Screen** and
 > opened as an app. That is an Apple platform restriction, not an app setting.
@@ -167,7 +226,7 @@ In **Vercel → Project → Settings → Environment Variables**, add for **Prod
 | `AUTH_SECRET` | 32+ random chars | Same generator command as above |
 | `VAPID_PUBLIC_KEY` | from `web-push generate-vapid-keys` | Optional — omit to disable push |
 | `VAPID_PRIVATE_KEY` | from the same command | Keep secret |
-| `VAPID_SUBJECT` | `mailto:you@example.com` | Contact for the push services |
+| `VAPID_SUBJECT` | `mailto:ss1036425@gmail.com` | Contact URI, not a login |
 | `CRON_SECRET` | 32+ random chars | Guards the reminder job |
 | `SEED_ADMIN_PASSWORD` | your own admin password | Set before the first deploy |
 
