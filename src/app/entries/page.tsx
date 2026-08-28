@@ -362,7 +362,6 @@ export default function EntriesPage() {
     <PageShell>
       <PageHeader
         title="Daily Entries"
-        description="Log values toward each category’s daily target. Targets reset every day."
         action={
           <Button
             type="button"

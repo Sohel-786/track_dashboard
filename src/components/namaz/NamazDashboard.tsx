@@ -3,34 +3,23 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlarmClock,
-  CalendarRange,
   CheckCircle2,
   Flame,
   History,
   Loader2,
   Sparkles,
   TriangleAlert,
-  Trophy,
 } from "lucide-react";
 import { api } from "@/lib/client-api";
 import type { AnalyticsQuickRange } from "@/lib/date-ranges";
-import {
-  resolveAnalyticsQuickRange,
-  trackingStartLabel,
-} from "@/lib/date-ranges";
-import { hasActiveAnalyticsRangeFilter } from "@/lib/filter-utils";
+import { resolveAnalyticsQuickRange } from "@/lib/date-ranges";
 import { NAMAZ_PRAYERS, NAMAZ_PRAYER_META, type NamazPrayer } from "@/lib/namaz";
 import type { NamazAnalyticsResponse } from "@/types";
 import {
-  ChartCard,
-  ChartLegend,
   ConsistencyHeatmap,
   EmptyState,
   ProgressRing,
-  RateBars,
   SectionCard,
-  StatTile,
   type HeatmapDay,
 } from "@/components/dashboard/insight-widgets";
 import {
@@ -40,10 +29,7 @@ import {
   SEMANTIC_COLORS,
 } from "@/components/dashboard/chart-theme";
 import { AppDataTable } from "@/components/ui/AppDataTable";
-import { Button } from "@/components/ui/button";
-import { ClearFiltersButton } from "@/components/ui/clear-filters-button";
 import { DatePicker } from "@/components/ui/date-picker";
-import { FilterLabel } from "@/components/ui/label";
 import {
   SELECT_ALL,
   Select,
@@ -54,7 +40,6 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  listFilterCardClass,
   tableBodyCellClass,
   tableBodyRowClass,
   tableHeadCellClass,
@@ -65,12 +50,6 @@ const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), {
   ssr: false,
 });
 const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const LineChart = dynamic(() => import("recharts").then((m) => m.LineChart), {
-  ssr: false,
-});
-const Line = dynamic(() => import("recharts").then((m) => m.Line), {
-  ssr: false,
-});
 const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), {
   ssr: false,
 });
@@ -90,7 +69,6 @@ const ResponsiveContainer = dynamic(
 );
 
 const RANGE_PILLS: { key: AnalyticsQuickRange; label: string }[] = [
-  { key: "today", label: "Today" },
   { key: "week", label: "7 days" },
   { key: "last30", label: "30 days" },
   { key: "month", label: "Month" },
@@ -111,25 +89,88 @@ const EXTRA_COLORS = {
   zamaat: SEMANTIC_COLORS.info,
 } as const;
 
-type ReportFocus = "overview" | "extras" | "misses";
-
 function pct(part: number, whole: number) {
   if (whole <= 0) return 0;
   return Math.round((part / whole) * 1000) / 10;
 }
 
-function FlagPill({ on, label }: { on: boolean; label: string }) {
+function rateColor(value: number) {
+  if (value >= 80) return SEMANTIC_COLORS.positive;
+  if (value >= 50) return SEMANTIC_COLORS.warning;
+  return SEMANTIC_COLORS.negative;
+}
+
+/** One headline number. No caption — the label and the value say it all. */
+function MiniStat({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  icon: typeof Flame;
+  tone: "emerald" | "amber" | "rose" | "teal";
+}) {
+  const tones = {
+    emerald: "bg-emerald-500/12 text-emerald-800 dark:text-emerald-300",
+    amber: "bg-amber-500/12 text-amber-800 dark:text-amber-300",
+    rose: "bg-rose-500/12 text-rose-800 dark:text-rose-300",
+    teal: "bg-teal-500/12 text-teal-800 dark:text-teal-300",
+  } as const;
+
   return (
-    <span
-      className={cn(
-        "inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-        on
-          ? "bg-teal-500/15 text-teal-800 dark:text-teal-200"
-          : "bg-muted text-muted-foreground"
-      )}
-    >
-      {label}: {on ? "with" : "without"}
-    </span>
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+      <span
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+          tones[tone]
+        )}
+      >
+        <Icon className="h-4 w-4" strokeWidth={2.25} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xl font-bold tabular-nums leading-none tracking-tight">
+          {value}
+        </p>
+        <p className="mt-1 truncate text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Named percentage row — used for both per-prayer rates and extras. */
+function RateRow({
+  label,
+  value,
+  detail,
+  color,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  color: string;
+}) {
+  return (
+    <li className="flex items-center gap-3">
+      <span className="w-20 shrink-0 truncate text-sm font-semibold">
+        {label}
+      </span>
+      <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+        <span
+          className="block h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${Math.min(100, Math.max(value > 0 ? 3 : 0, value))}%`,
+            background: color,
+          }}
+        />
+      </span>
+      <span className="w-24 shrink-0 text-right text-xs font-bold tabular-nums">
+        {detail}
+      </span>
+    </li>
   );
 }
 
@@ -139,17 +180,11 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
   const [from, setFrom] = useState(baseline.from);
   const [to, setTo] = useState(baseline.to);
   const [prayerFilter, setPrayerFilter] = useState("");
-  const [focus, setFocus] = useState<ReportFocus>("overview");
   const [data, setData] = useState<NamazAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  /** Authoritative per-account start; the server clamps every range to it. */
-  const trackingStart = data?.trackingStart ?? null;
 
-  const hasActiveFilters =
-    Boolean(prayerFilter) ||
-    focus !== "overview" ||
-    hasActiveAnalyticsRangeFilter(quick, from, to, "week");
+  const trackingStart = data?.trackingStart ?? null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,9 +196,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
         await api<NamazAnalyticsResponse>(`/api/namaz/analytics?${params}`)
       );
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to load namaz analytics"
-      );
+      setError(e instanceof Error ? e.message : "Failed to load analytics");
     } finally {
       setLoading(false);
     }
@@ -182,19 +215,6 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
     }
   }
 
-  function resetFilters() {
-    const range = resolveAnalyticsQuickRange("week");
-    setQuick("week");
-    setFrom(range.from);
-    setTo(range.to);
-    setPrayerFilter("");
-    setFocus("overview");
-  }
-
-  const prayerName = prayerFilter
-    ? NAMAZ_PRAYER_META[prayerFilter as NamazPrayer]?.label
-    : null;
-
   const kpis = data?.kpis ?? null;
   const daily = useMemo(() => data?.daily ?? [], [data]);
   const slotsPerDay = prayerFilter ? 1 : NAMAZ_PRAYERS.length;
@@ -204,7 +224,7 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
       daily.map((d) => ({
         date: d.date,
         intensity: d.isFinalized || d.completed > 0 ? d.completed / d.slots : -1,
-        title: `${d.date} · ${d.prayed} on time, ${d.kaza} kaza, ${d.missed} missed`,
+        title: `${d.date} — ${d.prayed} on time, ${d.kaza} kaza, ${d.missed} missed`,
       })),
     [daily]
   );
@@ -216,185 +236,107 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
       : data.byPrayer;
     return rows.map((p) => ({
       label: p.label,
-      pct: p.onTimePct,
-      caption: `${p.prayed} on time · ${p.kaza} kaza · ${p.missed} missed`,
-      color:
-        p.onTimePct >= 80
-          ? SEMANTIC_COLORS.positive
-          : p.onTimePct >= 50
-            ? SEMANTIC_COLORS.warning
-            : SEMANTIC_COLORS.negative,
+      value: p.onTimePct,
+      detail: `${p.prayed}/${p.expected}`,
+      color: rateColor(p.onTimePct),
     }));
   }, [data, prayerFilter]);
 
   const extraRates = useMemo(() => {
     if (!data) return [];
-    const completed = data.kpis.completedInRange;
+    const done = data.kpis.completedInRange;
     return [
       {
         label: "Sunnah",
-        pct: pct(data.extrasShare.sunnah.with, completed),
-        caption: `${data.extrasShare.sunnah.with} of ${completed} prayers`,
+        value: pct(data.extrasShare.sunnah.with, done),
+        detail: `${data.extrasShare.sunnah.with}/${done}`,
         color: EXTRA_COLORS.sunnah,
       },
       {
         label: "Tasbeeh",
-        pct: pct(data.extrasShare.tasbeeh.with, completed),
-        caption: `${data.extrasShare.tasbeeh.with} of ${completed} prayers`,
+        value: pct(data.extrasShare.tasbeeh.with, done),
+        detail: `${data.extrasShare.tasbeeh.with}/${done}`,
         color: EXTRA_COLORS.tasbeeh,
       },
       {
         label: "Zamaat",
-        pct: pct(data.extrasShare.zamaat.with, completed),
-        caption: `${data.extrasShare.zamaat.with} of ${completed} prayers`,
+        value: pct(data.extrasShare.zamaat.with, done),
+        detail: `${data.extrasShare.zamaat.with}/${done}`,
         color: EXTRA_COLORS.zamaat,
       },
     ];
   }, [data]);
 
-  const strongest = useMemo(
-    () =>
-      prayerRates.length
-        ? prayerRates.reduce((a, b) => (b.pct > a.pct ? b : a))
-        : null,
-    [prayerRates]
-  );
-  const weakest = useMemo(
-    () =>
-      prayerRates.length
-        ? prayerRates.reduce((a, b) => (b.pct < a.pct ? b : a))
-        : null,
-    [prayerRates]
-  );
-
   const dailyNewestFirst = useMemo(() => [...daily].reverse(), [daily]);
 
   return (
     <section className="space-y-5">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
-          Insights
-        </p>
-        <h2 className="mt-0.5 text-xl font-bold tracking-tight">
-          Prayer practice analytics
-        </h2>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Rates are measured over days that have finished — today is still open,
-          so it never counts against you.
-          {trackingStart
-            ? ` Nothing before ${trackingStartLabel(trackingStart)} is counted, so days from before you started tracking never appear as misses.`
-            : null}
-        </p>
-      </div>
-
-      <div className={listFilterCardClass}>
-        <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
+      {/* One control bar: when, and which prayer. */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
+        <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
           {RANGE_PILLS.map((pill) => (
-            <Button
+            <button
               key={pill.key}
               type="button"
-              size="sm"
-              variant={quick === pill.key ? "default" : "secondary"}
               onClick={() => applyQuick(pill.key)}
+              aria-pressed={quick === pill.key}
               className={cn(
-                "rounded-full px-3",
+                "rounded-lg px-3 py-1.5 text-xs font-bold transition sm:text-sm",
                 quick === pill.key
-                  ? "shadow-sm"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               {pill.label}
-            </Button>
+            </button>
           ))}
         </div>
 
-        <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="w-full min-w-[10rem] sm:w-44">
-            <FilterLabel>From</FilterLabel>
-            <DatePicker
-              value={from}
-              minIso={trackingStart ?? undefined}
-              maxIso={to}
-              onChange={(iso) => {
-                if (!iso) return;
-                setQuick("custom");
-                setFrom(iso);
-              }}
-            />
+        {quick === "custom" ? (
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            <div className="min-w-[9rem] flex-1 sm:max-w-[11rem]">
+              <DatePicker
+                value={from}
+                minIso={trackingStart ?? undefined}
+                maxIso={to}
+                onChange={(iso) => iso && setFrom(iso)}
+              />
+            </div>
+            <div className="min-w-[9rem] flex-1 sm:max-w-[11rem]">
+              <DatePicker
+                value={to}
+                minIso={from}
+                onChange={(iso) => iso && setTo(iso)}
+              />
+            </div>
           </div>
-          <div className="w-full min-w-[10rem] sm:w-44">
-            <FilterLabel>To</FilterLabel>
-            <DatePicker
-              value={to}
-              minIso={from}
-              onChange={(iso) => {
-                if (!iso) return;
-                setQuick("custom");
-                setTo(iso);
-              }}
-            />
-          </div>
-          <div className="w-full min-w-[12rem] flex-1 sm:max-w-xs">
-            <FilterLabel>Prayer</FilterLabel>
-            <Select
-              value={prayerFilter || SELECT_ALL}
-              onValueChange={(value) =>
-                setPrayerFilter(value === SELECT_ALL ? "" : value)
-              }
-            >
-              <SelectTrigger aria-label="Filter namaz analytics by prayer">
-                <SelectValue placeholder="All prayers" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={SELECT_ALL}>All prayers</SelectItem>
-                {NAMAZ_PRAYERS.map((prayer) => (
-                  <SelectItem key={prayer} value={prayer}>
-                    {NAMAZ_PRAYER_META[prayer].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-full min-w-[12rem] flex-1 sm:max-w-xs">
-            <FilterLabel>Report focus</FilterLabel>
-            <Select
-              value={focus}
-              onValueChange={(value) => setFocus(value as ReportFocus)}
-            >
-              <SelectTrigger aria-label="Report focus">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="overview">Overview</SelectItem>
-                <SelectItem value="extras">Sunnah · Tasbeeh · Zamaat</SelectItem>
-                <SelectItem value="misses">Misses &amp; Kaza</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {hasActiveFilters ? (
-            <ClearFiltersButton onClick={resetFilters} />
-          ) : null}
-        </div>
+        ) : null}
 
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[11px] text-muted-foreground">
-          <span className="font-semibold text-foreground">
-            {from} → {to}
-          </span>
-          {prayerName ? (
-            <span className="inline-flex items-center rounded-full bg-teal-500/15 px-2.5 py-0.5 font-semibold text-teal-800 dark:text-teal-200">
-              {prayerName} only
-            </span>
-          ) : null}
-          <span className="ml-auto">
-            {kpis?.finalizedExpected ?? 0} finished slots in range
-          </span>
+        <div className="w-full sm:ml-auto sm:w-48">
+          <Select
+            value={prayerFilter || SELECT_ALL}
+            onValueChange={(value) =>
+              setPrayerFilter(value === SELECT_ALL ? "" : value)
+            }
+          >
+            <SelectTrigger aria-label="Filter by prayer">
+              <SelectValue placeholder="All prayers" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SELECT_ALL}>All prayers</SelectItem>
+              {NAMAZ_PRAYERS.map((prayer) => (
+                <SelectItem key={prayer} value={prayer}>
+                  {NAMAZ_PRAYER_META[prayer as NamazPrayer].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading namaz analytics...
+      {loading && !data ? (
+        <div className="flex items-center justify-center py-24 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
         </div>
       ) : error ? (
         <div className="rounded-xl border border-rose-400 bg-rose-500/12 p-6 text-sm font-medium text-rose-800 dark:border-rose-400/40 dark:bg-rose-400/12 dark:text-rose-200">
@@ -402,143 +344,97 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       ) : data && kpis ? (
         <>
-          {/* Hero: the two numbers that matter, then supporting tiles. */}
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
-            <SectionCard
-              title="On-time rate"
-              description="Finished days only"
-              bodyClassName="flex items-center justify-center py-6"
-            >
+          {/* The headline: one rate, then the four counts behind it. */}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,17rem)_1fr]">
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm">
               <ProgressRing
                 value={kpis.onTimePct}
                 label="On time"
-                color={
-                  kpis.onTimePct >= 80
-                    ? SEMANTIC_COLORS.positive
-                    : kpis.onTimePct >= 50
-                      ? SEMANTIC_COLORS.warning
-                      : SEMANTIC_COLORS.negative
-                }
-                caption={`${kpis.prayedInRange} of ${kpis.finalizedExpected} expected prayers offered inside their window. ${kpis.completionPct}% completed once Kaza is counted.`}
+                color={rateColor(kpis.onTimePct)}
               />
-            </SectionCard>
+              <p className="text-sm font-bold tabular-nums">
+                {kpis.prayedInRange}
+                <span className="text-muted-foreground">
+                  {" "}
+                  / {kpis.finalizedExpected}
+                </span>
+              </p>
+            </div>
 
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-              <StatTile
-                label="Current streak"
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-2">
+              <MiniStat
+                label="Streak"
                 value={kpis.streak}
-                sub={`Best ${kpis.bestStreak} · full days in a row`}
                 icon={Flame}
-                accent="amber"
+                tone="amber"
               />
-              <StatTile
+              <MiniStat
                 label="On time"
                 value={kpis.prayedInRange}
-                sub={prayerName ? `${prayerName} in window` : "Inside the window"}
                 icon={CheckCircle2}
-                accent="emerald"
-                progress={kpis.onTimePct}
+                tone="emerald"
               />
-              <StatTile
+              <MiniStat
                 label="Kaza"
                 value={kpis.kazaInRange}
-                sub="Completed after the window"
                 icon={History}
-                accent="amber"
+                tone="amber"
               />
-              <StatTile
-                label="Still missed"
+              <MiniStat
+                label="Missed"
                 value={kpis.missedInRange}
-                sub="Past days awaiting Kaza"
                 icon={TriangleAlert}
-                accent={kpis.missedInRange > 0 ? "rose" : "slate"}
-              />
-              <StatTile
-                label="Unmarked today"
-                value={kpis.graceTodayCount}
-                sub="Closed windows still recordable"
-                icon={AlarmClock}
-                accent={kpis.graceTodayCount > 0 ? "rose" : "slate"}
-              />
-              <StatTile
-                label="Completion"
-                value={`${kpis.completionPct}%`}
-                sub="Past days filled, incl. Kaza"
-                icon={CalendarRange}
-                accent="violet"
-                progress={kpis.completionPct}
+                tone={kpis.missedInRange > 0 ? "rose" : "teal"}
               />
             </div>
           </div>
 
-          {(focus === "overview" || focus === "misses") && (
-            <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-              <SectionCard
-                title="Consistency"
-                description="One square per day — darker means more of that day was completed"
-              >
-                <ConsistencyHeatmap
-                  days={heatmapDays}
-                  legendLow="0"
-                  legendHigh={`${slotsPerDay}`}
-                />
-              </SectionCard>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <SectionCard title="On time by prayer">
+              {prayerRates.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Nothing to show yet.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {prayerRates.map((row) => (
+                    <RateRow key={row.label} {...row} />
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
 
-              <SectionCard
-                title={prayerName ? `On-time rate · ${prayerName}` : "On-time rate by prayer"}
-                description="Share of finished days each prayer was offered in its window"
-              >
-                <RateBars rows={prayerRates} />
-                {strongest && weakest && strongest.label !== weakest.label ? (
-                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3">
-                    <div className="rounded-lg bg-emerald-500/12 px-2.5 py-2 dark:bg-emerald-400/12">
-                      <p className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                        <Trophy className="h-3 w-3" /> Strongest
-                      </p>
-                      <p className="mt-0.5 text-sm font-bold">
-                        {strongest.label}{" "}
-                        <span className="tabular-nums text-muted-foreground">
-                          {strongest.pct}%
-                        </span>
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-rose-500/12 px-2.5 py-2 dark:bg-rose-400/12">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300">
-                        Needs attention
-                      </p>
-                      <p className="mt-0.5 text-sm font-bold">
-                        {weakest.label}{" "}
-                        <span className="tabular-nums text-muted-foreground">
-                          {weakest.pct}%
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-              </SectionCard>
-            </div>
-          )}
+            <SectionCard title="Consistency">
+              <ConsistencyHeatmap
+                days={heatmapDays}
+                legendLow="0"
+                legendHigh={`${slotsPerDay}`}
+              />
+            </SectionCard>
+          </div>
 
-          {(focus === "overview" || focus === "misses") && (
-            <ChartCard
-              title={
-                prayerName
-                  ? `Daily outcome · ${prayerName}`
-                  : "Daily outcome mix"
-              }
-              description="Every slot of every day, by how it was completed"
-              height={300}
-              action={
-                <ChartLegend
-                  items={[
-                    { label: "On time", color: MIX_COLORS.onTime },
-                    { label: "Kaza", color: MIX_COLORS.kaza },
-                    { label: "Missed", color: MIX_COLORS.missed },
-                    { label: "Unmarked today", color: MIX_COLORS.grace },
-                  ]}
-                />
-              }
-            >
+          <SectionCard
+            title="Each day"
+            action={
+              <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                {[
+                  { label: "On time", color: MIX_COLORS.onTime },
+                  { label: "Kaza", color: MIX_COLORS.kaza },
+                  { label: "Missed", color: MIX_COLORS.missed },
+                  { label: "Open", color: MIX_COLORS.grace },
+                ].map((item) => (
+                  <span key={item.label} className="inline-flex items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 rounded-sm"
+                      style={{ background: item.color }}
+                    />
+                    {item.label}
+                  </span>
+                ))}
+              </div>
+            }
+          >
+            <div className="h-[16rem] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={daily} margin={{ top: 8, right: 8, left: 0 }}>
                   <CartesianGrid
@@ -559,138 +455,105 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                     domain={[0, slotsPerDay]}
                     tickLine={false}
                     axisLine={false}
-                    width={28}
+                    width={26}
                   />
                   <Tooltip {...CHART_TOOLTIP_STYLE} />
-                  <Bar dataKey="prayed" name="On time" stackId="mix" fill={MIX_COLORS.onTime} />
-                  <Bar dataKey="kaza" name="Kaza" stackId="mix" fill={MIX_COLORS.kaza} />
-                  <Bar dataKey="missed" name="Missed" stackId="mix" fill={MIX_COLORS.missed} />
+                  <Bar
+                    dataKey="prayed"
+                    name="On time"
+                    stackId="mix"
+                    fill={MIX_COLORS.onTime}
+                  />
+                  <Bar
+                    dataKey="kaza"
+                    name="Kaza"
+                    stackId="mix"
+                    fill={MIX_COLORS.kaza}
+                  />
+                  <Bar
+                    dataKey="missed"
+                    name="Missed"
+                    stackId="mix"
+                    fill={MIX_COLORS.missed}
+                  />
                   <Bar
                     dataKey="grace"
-                    name="Unmarked today"
+                    name="Open"
                     stackId="mix"
                     fill={MIX_COLORS.grace}
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>
               </ResponsiveContainer>
-            </ChartCard>
-          )}
-
-          {(focus === "overview" || focus === "extras") && (
-            <div className="grid gap-4 xl:grid-cols-[1fr_1.4fr]">
-              <SectionCard
-                title="Extras adherence"
-                description="Share of completed prayers that included each extra"
-              >
-                <RateBars
-                  rows={extraRates}
-                  emptyLabel="No completed prayers in this range"
-                />
-                <p className="mt-4 border-t border-border pt-3 text-[11px] text-muted-foreground">
-                  Checked extras count as <strong>with</strong>; completed
-                  prayers left unchecked count as <strong>without</strong>.
-                </p>
-              </SectionCard>
-
-              <ChartCard
-                title={
-                  prayerName
-                    ? `Daily extras · ${prayerName}`
-                    : "Daily extras trend"
-                }
-                description="Prayers performed with each extra, per day"
-                height={280}
-                action={
-                  <ChartLegend
-                    items={[
-                      { label: "Sunnah", color: EXTRA_COLORS.sunnah },
-                      { label: "Tasbeeh", color: EXTRA_COLORS.tasbeeh },
-                      { label: "Zamaat", color: EXTRA_COLORS.zamaat },
-                    ]}
-                  />
-                }
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={daily} margin={{ top: 8, right: 8, left: 0 }}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={CHART_GRID_STROKE}
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="dayLabel"
-                      tick={CHART_TICK}
-                      interval="preserveStartEnd"
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={CHART_TICK}
-                      domain={[0, slotsPerDay]}
-                      tickLine={false}
-                      axisLine={false}
-                      width={28}
-                    />
-                    <Tooltip {...CHART_TOOLTIP_STYLE} />
-                    <Line
-                      type="monotone"
-                      dataKey="sunnahWith"
-                      name="Sunnah"
-                      stroke={EXTRA_COLORS.sunnah}
-                      strokeWidth={2.5}
-                      dot={false}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="tasbeehWith"
-                      name="Tasbeeh"
-                      stroke={EXTRA_COLORS.tasbeeh}
-                      strokeWidth={2.5}
-                      dot={false}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="zamaatWith"
-                      name="Zamaat"
-                      stroke={EXTRA_COLORS.zamaat}
-                      strokeWidth={2.5}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartCard>
             </div>
-          )}
+          </SectionCard>
 
-          {(focus === "overview" || focus === "extras") && (
+          <SectionCard title="Extras">
+            <ul className="flex flex-col gap-3">
+              {extraRates.map((row) => (
+                <RateRow key={row.label} {...row} />
+              ))}
+            </ul>
+          </SectionCard>
+
+          <div className="grid gap-4 xl:grid-cols-2">
             <AppDataTable
-              title="Day-by-day practice report"
+              title="Kaza queue"
+              totalCount={data.missed.length}
+              empty="Nothing outstanding."
+              minWidth={420}
+            >
+              <thead>
+                <tr className={tableHeadRowClass}>
+                  <th className={tableHeadCellClass}>Date</th>
+                  <th className={tableHeadCellClass}>Prayer</th>
+                  <th className={tableHeadCellClass}>Age</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.missed.map((m) => (
+                  <tr key={`${m.date}-${m.prayer}`} className={tableBodyRowClass}>
+                    <td className={cn(tableBodyCellClass, "tabular-nums")}>
+                      <span className="font-semibold">{m.dayLabel}</span>
+                    </td>
+                    <td className={tableBodyCellClass}>
+                      <span className="inline-flex rounded-full bg-rose-500/15 px-2.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-400/15 dark:text-rose-200">
+                        {m.label}
+                      </span>
+                    </td>
+                    <td
+                      className={cn(
+                        tableBodyCellClass,
+                        "tabular-nums text-muted-foreground"
+                      )}
+                    >
+                      {m.daysAgo}d
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </AppDataTable>
+
+            <AppDataTable
+              title="Day by day"
               totalCount={dailyNewestFirst.length}
               empty="No days in this range."
+              minWidth={420}
             >
               <thead>
                 <tr className={tableHeadRowClass}>
                   <th className={tableHeadCellClass}>Day</th>
-                  <th className={tableHeadCellClass}>Date</th>
                   <th className={tableHeadCellClass}>On time</th>
                   <th className={tableHeadCellClass}>Kaza</th>
                   <th className={tableHeadCellClass}>Missed</th>
-                  <th className={tableHeadCellClass}>Completed</th>
-                  <th className={tableHeadCellClass}>Sunnah</th>
-                  <th className={tableHeadCellClass}>Tasbeeh</th>
-                  <th className={tableHeadCellClass}>Zamaat</th>
+                  <th className={tableHeadCellClass}>Done</th>
                 </tr>
               </thead>
               <tbody>
                 {dailyNewestFirst.map((d) => (
                   <tr key={d.date} className={tableBodyRowClass}>
-                    <td className={tableBodyCellClass}>
-                      <span className="font-semibold">{d.weekday}</span>
-                    </td>
                     <td className={cn(tableBodyCellClass, "tabular-nums")}>
-                      {d.date}
+                      <span className="font-semibold">{d.dayLabel}</span>
                     </td>
                     <td
                       className={cn(
@@ -715,15 +578,10 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                       )}
                     >
                       {d.missed}
-                      {d.grace > 0 ? (
-                        <span className="ml-1 text-[10px] font-semibold text-muted-foreground">
-                          (+{d.grace} open)
-                        </span>
-                      ) : null}
                     </td>
                     <td className={tableBodyCellClass}>
                       <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                        <div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
                           <div
                             className="h-full rounded-full bg-teal-600 dark:bg-teal-400"
                             style={{ width: `${Math.min(100, d.completedPct)}%` }}
@@ -734,131 +592,14 @@ export function NamazDashboard({ refreshKey = 0 }: { refreshKey?: number }) {
                         </span>
                       </div>
                     </td>
-                    <td className={cn(tableBodyCellClass, "text-xs tabular-nums")}>
-                      <span className="font-semibold text-teal-800 dark:text-teal-300">
-                        {d.sunnahWith}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        / {d.sunnahWith + d.sunnahWithout}
-                      </span>
-                    </td>
-                    <td className={cn(tableBodyCellClass, "text-xs tabular-nums")}>
-                      <span className="font-semibold text-violet-700 dark:text-violet-300">
-                        {d.tasbeehWith}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        / {d.tasbeehWith + d.tasbeehWithout}
-                      </span>
-                    </td>
-                    <td className={cn(tableBodyCellClass, "text-xs tabular-nums")}>
-                      <span className="font-semibold text-blue-700 dark:text-blue-300">
-                        {d.zamaatWith}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        / {d.zamaatWith + d.zamaatWithout}
-                      </span>
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </AppDataTable>
-          )}
-
-          {(focus === "overview" || focus === "misses") && (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <AppDataTable
-                title="Outstanding misses (Kaza queue)"
-                totalCount={data.missed.length}
-                empty="No outstanding misses in this range."
-              >
-                <thead>
-                  <tr className={tableHeadRowClass}>
-                    <th className={tableHeadCellClass}>Day</th>
-                    <th className={tableHeadCellClass}>Date</th>
-                    <th className={tableHeadCellClass}>Prayer</th>
-                    <th className={tableHeadCellClass}>Age</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.missed.map((m) => (
-                    <tr key={`${m.date}-${m.prayer}`} className={tableBodyRowClass}>
-                      <td className={tableBodyCellClass}>
-                        <span className="font-semibold">{m.dayLabel}</span>
-                      </td>
-                      <td className={cn(tableBodyCellClass, "tabular-nums")}>
-                        {m.date}
-                      </td>
-                      <td className={tableBodyCellClass}>
-                        <span className="inline-flex rounded-full bg-rose-500/15 px-2.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-400/15 dark:text-rose-200">
-                          {m.label}
-                        </span>
-                      </td>
-                      <td
-                        className={cn(
-                          tableBodyCellClass,
-                          "tabular-nums text-muted-foreground"
-                        )}
-                      >
-                        {m.daysAgo}d
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </AppDataTable>
-
-              <AppDataTable
-                title="Completed via Kaza"
-                totalCount={data.kazaLog.length}
-                empty="No Kaza completions in this range yet."
-              >
-                <thead>
-                  <tr className={tableHeadRowClass}>
-                    <th className={tableHeadCellClass}>Day</th>
-                    <th className={tableHeadCellClass}>Original date</th>
-                    <th className={tableHeadCellClass}>Prayer</th>
-                    <th className={tableHeadCellClass}>Extras</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.kazaLog.map((m) => (
-                    <tr
-                      key={`${m.date}-${m.prayer}-kaza`}
-                      className={tableBodyRowClass}
-                    >
-                      <td className={tableBodyCellClass}>
-                        <span className="font-semibold">{m.dayLabel}</span>
-                      </td>
-                      <td className={cn(tableBodyCellClass, "tabular-nums")}>
-                        {m.date}
-                      </td>
-                      <td className={tableBodyCellClass}>
-                        <span className="inline-flex rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-800 dark:text-amber-200">
-                          {m.label}
-                        </span>
-                      </td>
-                      <td className={tableBodyCellClass}>
-                        <div className="flex flex-wrap gap-1">
-                          <FlagPill on={m.sunnah} label="Sunnah" />
-                          <FlagPill on={m.tasbeeh} label="Tasbeeh" />
-                          <FlagPill on={m.zamaat} label="Zamaat" />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </AppDataTable>
-            </div>
-          )}
+          </div>
 
           {kpis.finalizedExpected === 0 ? (
-            <EmptyState
-              icon={Sparkles}
-              title="No finished days in this range yet"
-              description="Rates appear once a day has fully closed. Widen the range or come back tomorrow."
-            />
+            <EmptyState icon={Sparkles} title="No finished days in this range" />
           ) : null}
         </>
       ) : null}

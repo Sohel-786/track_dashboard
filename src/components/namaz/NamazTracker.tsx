@@ -87,6 +87,21 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
     return () => window.clearInterval(id);
   }, [load]);
 
+  /* "Mark prayed" tapped on a push notification writes from the service
+     worker, so the open tab has to be told to re-read the checklist. */
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "namaz-updated") {
+        void load();
+        onChanged?.();
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [load, onChanged]);
+
   // Local clock anchored to the server instant, for grace countdowns.
   useEffect(() => {
     if (!day?.schedule?.serverNow) return;
@@ -220,43 +235,22 @@ export function NamazTracker({ onChanged }: { onChanged?: () => void }) {
         }}
       />
 
-      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
-              Today’s checklist
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
+        <h2 className="min-w-0 text-lg font-bold tracking-tight sm:text-xl">
+          {day
+            ? format(parseISO(`${day.date}T00:00:00`), "EEEE, d MMMM yyyy")
+            : "—"}
+        </h2>
+        {dayEndsMs ? (
+          <div className="shrink-0 rounded-xl border border-border bg-muted/40 px-3 py-2 text-right">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Day closes in
             </p>
-            <h2 className="mt-0.5 text-lg font-bold tracking-tight sm:text-xl">
-              {day
-                ? format(parseISO(`${day.date}T00:00:00`), "EEEE, d MMMM yyyy")
-                : "Loading…"}
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Every prayer of today stays editable until midnight. Once a window
-              closes you can still record it as{" "}
-              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
-                prayed on time
-              </span>{" "}
-              if you prayed it and forgot to tick, or as{" "}
-              <span className="font-semibold text-amber-700 dark:text-amber-300">
-                Kaza
-              </span>{" "}
-              if it was late. Anything still unmarked when the day ends moves to
-              the <span className="font-semibold text-foreground">Kaza</span>{" "}
-              tab.
+            <p className="mt-0.5 font-mono text-lg font-bold tabular-nums text-foreground">
+              {formatCountdown(dayEndsMs - nowMs)}
             </p>
           </div>
-          {dayEndsMs ? (
-            <div className="shrink-0 rounded-xl border border-border bg-muted/40 px-3 py-2 text-right">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                Day closes in
-              </p>
-              <p className="mt-0.5 font-mono text-lg font-bold tabular-nums text-foreground">
-                {formatCountdown(dayEndsMs - nowMs)}
-              </p>
-            </div>
-          ) : null}
-        </div>
+        ) : null}
       </div>
 
       {loading || !day ? (

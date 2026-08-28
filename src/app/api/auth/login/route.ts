@@ -10,11 +10,30 @@ import {
 } from "@/lib/auth";
 import { fail, normalizeUsername, ok } from "@/lib/api-helpers";
 import { EnvError } from "@/lib/env";
+import { clientIp, rateLimit, resetRateLimit } from "@/lib/rate-limit";
 
 const schema = z.object({
   username: z.string().min(3).max(64),
   password: z.string().min(1).max(128),
 });
+
+/** Per-IP: absorbs a shared office NAT but stops a scripted flood. */
+const IP_LIMIT = { limit: 20, windowMs: 10 * 60_000, blockMs: 10 * 60_000 };
+/** Per-account: 5 wrong passwords locks that username out for 15 minutes. */
+const ACCOUNT_LIMIT = { limit: 5, windowMs: 15 * 60_000, blockMs: 15 * 60_000 };
+
+function tooManyAttempts(retryAfterSeconds: number) {
+  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+  return NextResponse.json(
+    {
+      success: false,
+      message: `Too many sign-in attempts. Try again in ${minutes} minute${
+        minutes === 1 ? "" : "s"
+      }.`,
+    },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+  );
+}
 
 function loginFailureMessage(error: unknown): { message: string; status: number } {
   if (
@@ -48,34 +67,50 @@ function loginFailureMessage(error: unknown): { message: string; status: number 
 }
 
 export async function POST(request: NextRequest) {
+  const ip = clientIp(request.headers);
+
   try {
+    const ipCheck = rateLimit(`login:ip:${ip}`, IP_LIMIT);
+    if (!ipCheck.ok) return tooManyAttempts(ipCheck.retryAfterSeconds);
+
     const body = await request.json();
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return fail("Username and password are required");
     }
 
-    await connectDB();
     const username = normalizeUsername(parsed.data.username);
+
+    const accountCheck = rateLimit(`login:user:${username}`, ACCOUNT_LIMIT);
+    if (!accountCheck.ok) {
+      return tooManyAttempts(accountCheck.retryAfterSeconds);
+    }
+
+    await connectDB();
     const user = await User.findOne({ username });
 
+    /**
+     * Same message and roughly the same work for "no such user" and "wrong
+     * password", so the response cannot be used to enumerate valid usernames.
+     */
     if (!user || !user.isActive) {
       return fail("Invalid credentials", 401);
     }
 
-    const valid = await verifyPassword(
-      parsed.data.password,
-      user.passwordHash
-    );
+    const valid = await verifyPassword(parsed.data.password, user.passwordHash);
     if (!valid) {
       return fail("Invalid credentials", 401);
     }
+
+    // Successful sign-in clears that account's failure budget.
+    resetRateLimit(`login:user:${username}`);
 
     const token = await createSessionToken({
       sub: String(user._id),
       username: user.username,
       name: user.name,
       role: user.role as "admin" | "user",
+      sessionVersion: user.sessionVersion ?? 0,
     });
 
     const response = ok({

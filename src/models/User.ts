@@ -39,6 +39,23 @@ const UserSchema = new Schema(
       match: /^\d{4}-\d{2}-\d{2}$/,
       default: null,
     },
+    /**
+     * Bumped whenever every existing session for this account must stop being
+     * trusted — password reset, deactivation, role change. Session tokens carry
+     * the value they were minted with, so an old token fails the check even
+     * though its signature is still valid.
+     */
+    sessionVersion: { type: Number, default: 0, required: true },
+    /** Push reminders for prayers still unmarked inside their window. */
+    namazRemindersEnabled: { type: Boolean, default: true, required: true },
+    /** Minutes between repeat reminders for the same prayer (15–180). */
+    namazReminderIntervalMinutes: {
+      type: Number,
+      default: 60,
+      min: 15,
+      max: 180,
+      required: true,
+    },
   },
   { timestamps: true }
 );

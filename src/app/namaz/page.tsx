@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { PageShell } from "@/components/layout/PageShell";
 import { NamazTracker } from "@/components/namaz/NamazTracker";
 import { NamazKaza, usePastKazaCount } from "@/components/namaz/NamazKaza";
 import { NamazDashboard } from "@/components/namaz/NamazDashboard";
+import { NamazNotifications } from "@/components/namaz/NamazNotifications";
 import {
   Tabs,
   TabsContent,
@@ -13,15 +14,6 @@ import {
 } from "@/components/ui/tabs";
 
 type NamazTab = "today" | "kaza" | "insights";
-
-const TAB_COPY: Record<NamazTab, string> = {
-  today:
-    "Ahmedabad prayer times and today’s checklist. Every prayer of today can be recorded as prayed on time — or as Kaza — right up to midnight.",
-  kaza:
-    "Make up prayers from days that have already closed. Filter by date or prayer, open a day in place, and record each make-up.",
-  insights:
-    "On-time rate, consistency, streaks and extras — measured only over days that have finished.",
-};
 
 export default function NamazPage() {
   const [tab, setTab] = useState<NamazTab>("today");
@@ -34,7 +26,9 @@ export default function NamazPage() {
 
   return (
     <PageShell>
-      <PageHeader title="Namaz" description={TAB_COPY[tab]} />
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Namaz</h1>
+
+      <NamazNotifications />
 
       <Tabs
         value={tab}
@@ -44,7 +38,6 @@ export default function NamazPage() {
         <TabsList aria-label="Namaz sections">
           <TabsTrigger value="today">
             <span className="text-sm font-bold tracking-tight">Today</span>
-            <span className="text-[10px] font-medium opacity-70">Checklist</span>
           </TabsTrigger>
           <TabsTrigger value="kaza" className="group">
             <span className="inline-flex items-center gap-1.5 text-sm font-bold tracking-tight">
@@ -55,11 +48,9 @@ export default function NamazPage() {
                 </span>
               ) : null}
             </span>
-            <span className="text-[10px] font-medium opacity-70">Past days</span>
           </TabsTrigger>
           <TabsTrigger value="insights">
             <span className="text-sm font-bold tracking-tight">Insights</span>
-            <span className="text-[10px] font-medium opacity-70">Analytics</span>
           </TabsTrigger>
         </TabsList>
 

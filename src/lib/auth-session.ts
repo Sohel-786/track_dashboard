@@ -10,6 +10,12 @@ export type SessionPayload = {
   username: string;
   name: string;
   role: "admin" | "user";
+  /**
+   * Account's `sessionVersion` at sign-in. Server routes compare it against the
+   * stored value so a password reset or deactivation invalidates tokens that
+   * are otherwise still inside their 30-day life.
+   */
+  sessionVersion: number;
 };
 
 function getSecretKey() {
@@ -23,6 +29,7 @@ export async function createSessionToken(
     username: payload.username,
     name: payload.name,
     role: payload.role,
+    sv: payload.sessionVersion,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
@@ -35,7 +42,9 @@ export async function verifySessionToken(
   token: string
 ): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecretKey());
+    const { payload } = await jwtVerify(token, getSecretKey(), {
+      algorithms: ["HS256"],
+    });
     if (!payload.sub || typeof payload.username !== "string") return null;
     const role = payload.role === "admin" ? "admin" : "user";
     return {
@@ -43,6 +52,7 @@ export async function verifySessionToken(
       username: payload.username,
       name: typeof payload.name === "string" ? payload.name : payload.username,
       role,
+      sessionVersion: typeof payload.sv === "number" ? payload.sv : 0,
     };
   } catch {
     return null;
@@ -53,6 +63,12 @@ export function sessionCookieOptions(maxAge = SESSION_MAX_AGE_SECONDS) {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
+    /**
+     * `strict` would drop the cookie on the first navigation in from anywhere
+     * else (including a PWA launch through an external link) and bounce the
+     * user to /login; `lax` still blocks cross-site POSTs, and the Origin check
+     * in middleware covers the rest.
+     */
     sameSite: "lax" as const,
     path: "/",
     maxAge,

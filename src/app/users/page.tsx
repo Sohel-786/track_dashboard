@@ -163,7 +163,6 @@ export default function UsersPage() {
     <PageShell>
       <PageHeader
         title="Users"
-        description="Admin-only. Create users who will each own their own categories and entries."
         action={
           <Button type="button" onClick={() => setDialogOpen(true)}>
             <UserPlus />
@@ -358,7 +357,8 @@ export default function UsersPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={4}
+              minLength={8}
+              autoComplete="new-password"
             />
           </div>
           <div>

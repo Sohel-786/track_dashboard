@@ -7,6 +7,7 @@ import { Activity, Eye, EyeOff, Lock, User } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, ApiError } from "@/lib/client-api";
 import type { AuthUser } from "@/types";
+import { safeNextPath } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,8 +30,7 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
       toast.success("Welcome back");
-      const next = searchParams.get("next") || "/";
-      router.replace(next.startsWith("/") ? next : "/");
+      router.replace(safeNextPath(searchParams.get("next")));
       router.refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Login failed");

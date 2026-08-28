@@ -7,6 +7,7 @@ import {
   Users,
 } from "lucide-react";
 import type { AuthUser } from "@/types";
+import { DASHBOARD_PATH, HOME_PATH } from "@/lib/routes";
 
 export type AppNavItem = {
   href?: string;
@@ -23,9 +24,9 @@ export type AppNavSection = {
 export function buildAppNavSections(user: AuthUser | null): AppNavSection[] {
   const main: AppNavSection = {
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: HOME_PATH, label: "Namaz", icon: MoonStar },
       { href: "/entries", label: "Entries", icon: ListChecks },
-      { href: "/namaz", label: "Namaz", icon: MoonStar },
+      { href: DASHBOARD_PATH, label: "Dashboard", icon: LayoutDashboard },
     ],
   };
 

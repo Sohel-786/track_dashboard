@@ -27,7 +27,11 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
     const categoryId = searchParams.get("categoryId");
-    const limit = Math.min(Number(searchParams.get("limit") || 300), 1000);
+    const requestedLimit = Number(searchParams.get("limit"));
+    const limit =
+      Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(Math.floor(requestedLimit), 1000)
+        : 300;
 
     const trackingStart = await getUserTrackingStart(session.sub);
     const filter: Record<string, unknown> = { userId: session.sub };

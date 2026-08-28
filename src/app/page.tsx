@@ -1,14 +1,10 @@
-import DashboardAnalytics from "@/components/dashboard/DashboardAnalytics";
-import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { redirect } from "next/navigation";
+import { HOME_PATH } from "@/lib/routes";
 
-export default function HomePage() {
-  return (
-    <PageShell>
-      <PageHeader
-        title="Dashboard"
-        description="Day-wise progress with daily targets — today, week, month, year, and custom ranges."
-      />
-      <DashboardAnalytics />
-    </PageShell>
-  );
+/**
+ * The app opens on the prayer checklist — that is the screen with something to
+ * do on it. Entry analytics live at /dashboard.
+ */
+export default function RootPage() {
+  redirect(HOME_PATH);
 }

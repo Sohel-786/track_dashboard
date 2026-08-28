@@ -1,8 +1,8 @@
 {
   "name": "TrackDash",
   "short_name": "TrackDash",
-  "description": "Personal progress tracker with daily category entries and analytics",
-  "start_url": "/login",
+  "description": "Daily prayer checklist, Kaza make-ups and personal progress tracking",
+  "start_url": "/namaz",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

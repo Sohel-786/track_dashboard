@@ -151,8 +151,7 @@ export default function CategoriesPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Category Master"
-        description="Create categories with a daily target (e.g. Pushups → 100 per day)."
+        title="Categories"
         action={
           <Button type="button" onClick={openCreate}>
             <Plus />

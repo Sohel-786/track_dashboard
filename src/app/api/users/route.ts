@@ -9,7 +9,10 @@ import { resolveTrackingStart } from "@/lib/user-settings";
 
 const createSchema = z.object({
   username: z.string().min(3).max(64),
-  password: z.string().min(4).max(128),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128),
   name: z.string().min(1).max(120),
   role: z.enum(["admin", "user"]).optional().default("user"),
   /** Optional go-live override; defaults to the account creation day. */

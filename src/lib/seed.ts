@@ -4,9 +4,16 @@ import Category from "@/models/Category";
 import Entry from "@/models/Entry";
 import { hashPassword } from "@/lib/passwords";
 
-const SEED_USERNAME = "sohel";
-const SEED_PASSWORD = "1036425";
-const SEED_NAME = "Sohel";
+/**
+ * First-run admin. The defaults are documented in the README, so a deployment
+ * that keeps them is publicly guessable — override them with env vars before
+ * exposing an instance to the internet.
+ */
+const SEED_USERNAME = (process.env.SEED_ADMIN_USERNAME || "sohel")
+  .trim()
+  .toLowerCase();
+const SEED_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "1036425";
+const SEED_NAME = process.env.SEED_ADMIN_NAME || "Sohel";
 
 let seeding: Promise<void> | null = null;
 
@@ -51,6 +58,12 @@ export async function ensureSeedAdmin(): Promise<void> {
         isActive: true,
       });
       console.log(`[seed] Admin user "${SEED_USERNAME}" created`);
+      if (!process.env.SEED_ADMIN_PASSWORD && process.env.NODE_ENV === "production") {
+        console.warn(
+          "[seed] Admin created with the documented default password. " +
+            "Change it from Users, or set SEED_ADMIN_PASSWORD before first run."
+        );
+      }
     })().catch((err) => {
       seeding = null;
       throw err;

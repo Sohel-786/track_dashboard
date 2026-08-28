@@ -243,20 +243,13 @@ export function NamazTimesPanel({
       <div className="border-b border-border bg-gradient-to-br from-teal-500/10 via-card to-card px-4 py-4 sm:px-5 sm:py-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-300">
-              Namaz times
-            </p>
-            <h2 className="mt-0.5 text-lg font-bold tracking-tight sm:text-xl">
+            <h2 className="text-lg font-bold tracking-tight sm:text-xl">
               Next namaz
             </h2>
-            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-              Live Ahmedabad schedule via adhan. Madhab here is for these times
-              only — save it if you also want checklist windows to match.
-            </p>
 
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1 sm:max-w-xs">
-                <FilterLabel>Madhab for times</FilterLabel>
+                <FilterLabel>Madhab</FilterLabel>
                 <Select
                   disabled={busy || loading}
                   value={madhabId}
@@ -288,9 +281,6 @@ export function NamazTimesPanel({
                 </Button>
               ) : null}
             </div>
-            <p className="mt-2 max-w-lg text-[11px] text-muted-foreground">
-              {madhabMeta.asrRule}
-            </p>
           </div>
 
           <div className="min-w-[15rem] rounded-xl border border-border bg-background/70 px-3 py-2.5 text-xs">

@@ -2,7 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
-import { authErrorResponse, requireAdmin } from "@/lib/auth";
+import {
+  authErrorResponse,
+  invalidateAccountCache,
+  requireAdmin,
+} from "@/lib/auth";
 import { hashPassword } from "@/lib/passwords";
 import { fail, isObjectId, ok } from "@/lib/api-helpers";
 import { todayIso } from "@/lib/date-ranges";
@@ -10,7 +14,11 @@ import { resolveTrackingStart } from "@/lib/user-settings";
 
 const updateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
-  password: z.string().min(4).max(128).optional(),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128)
+    .optional(),
   role: z.enum(["admin", "user"]).optional(),
   isActive: z.boolean().optional(),
   /** `null` clears the override and falls back to the account creation day. */
@@ -50,12 +58,31 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     if (parsed.data.name) user.name = parsed.data.name.trim();
-    if (parsed.data.role) user.role = parsed.data.role;
-    if (typeof parsed.data.isActive === "boolean") {
+
+    /**
+     * A new password, a role change or a deactivation must not leave the
+     * account's existing 30-day tokens usable. Bumping sessionVersion makes
+     * every one of them fail the check on the next request.
+     */
+    let revokeSessions = false;
+
+    if (parsed.data.role && parsed.data.role !== user.role) {
+      user.role = parsed.data.role;
+      revokeSessions = true;
+    }
+    if (
+      typeof parsed.data.isActive === "boolean" &&
+      parsed.data.isActive !== user.isActive
+    ) {
       user.isActive = parsed.data.isActive;
+      revokeSessions = true;
     }
     if (parsed.data.password) {
       user.passwordHash = await hashPassword(parsed.data.password);
+      revokeSessions = true;
+    }
+    if (revokeSessions) {
+      user.sessionVersion = (user.sessionVersion ?? 0) + 1;
     }
     if (parsed.data.trackingStartDate !== undefined) {
       if (parsed.data.trackingStartDate && parsed.data.trackingStartDate > todayIso()) {
@@ -65,6 +92,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     await user.save();
+    invalidateAccountCache(String(user._id));
 
     return ok({
       id: String(user._id),
@@ -91,7 +119,9 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
     if (!user) return fail("User not found", 404);
 
     user.isActive = false;
+    user.sessionVersion = (user.sessionVersion ?? 0) + 1;
     await user.save();
+    invalidateAccountCache(String(user._id));
 
     return ok({ id, deactivated: true });
   } catch (error) {
