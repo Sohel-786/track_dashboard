@@ -1,5 +1,5 @@
 /* TrackDash service worker — network-first navigations + Namaz push reminders */
-const CACHE = "trackdash-v3";
+const CACHE = "trackdash-v4";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",

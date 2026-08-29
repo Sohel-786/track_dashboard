@@ -2,6 +2,7 @@
   "name": "TrackDash",
   "short_name": "TrackDash",
   "description": "Daily prayer checklist, Kaza make-ups and personal progress tracking",
+  "id": "/",
   "start_url": "/namaz",
   "scope": "/",
   "display": "standalone",
