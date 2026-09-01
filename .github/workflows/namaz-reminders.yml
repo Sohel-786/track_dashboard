@@ -17,8 +17,16 @@
 #     tab, or push anything.
 #
 # Setup — Settings → Secrets and variables → Actions:
-#   APP_URL      https://your-app.vercel.app   (no trailing slash)
-#   CRON_SECRET  the same value as the CRON_SECRET env var on the host
+#
+#   Variables tab: APP_URL      https://your-app.vercel.app
+#                               The site root. No path, no trailing slash.
+#   Secrets tab:   CRON_SECRET  the same value as the CRON_SECRET env var on
+#                               the host.
+#
+# APP_URL is a *variable* on purpose. Actions masks every secret value in log
+# output, so an APP_URL stored as a secret prints as `***` and hides the one
+# detail worth seeing when a call goes wrong. A public site's address is not a
+# password. (A secret still works if you already made one — see below.)
 name: Namaz reminders
 
 on:
@@ -39,29 +47,69 @@ jobs:
     steps:
       - name: Call the reminder job
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          # Prefers the variable; falls back to a secret already set up as one.
+          APP_URL: ${{ vars.APP_URL || secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
 
           if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
-            echo "::error::APP_URL and CRON_SECRET repository secrets are required."
+            echo "::error::APP_URL (variable) and CRON_SECRET (secret) are both required."
             exit 1
           fi
 
-          # The secret travels as a header, never in the URL — query strings end
+          url="${APP_URL%/}/api/notifications/run"
+          echo "Calling ${url}"
+
+          # Deliberately NOT --location. This endpoint answers directly, so a
+          # redirect means APP_URL is not the site root — and following it would
+          # land on the login page and report its 200 as success: a job that
+          # never ran, reported green.
+          #
+          # The secret travels as a header, never in the URL. Query strings end
           # up in logs and proxy history, and this one is a password.
-          status=$(curl --silent --show-error --location \
+          curl --silent --show-error \
             --max-time 90 --retry 2 --retry-delay 5 \
             --header "x-cron-secret: ${CRON_SECRET}" \
-            --output response.json --write-out '%{http_code}' \
-            "${APP_URL%/}/api/notifications/run")
+            --dump-header headers.txt \
+            --output response.body \
+            --write-out '%{http_code}' \
+            "${url}" > status.txt
 
+          status="$(cat status.txt)"
           echo "HTTP ${status}"
-          cat response.json || true
-          echo
 
-          if [ "${status}" != "200" ]; then
-            echo "::error::Reminder job returned HTTP ${status}"
+          case "${status}" in
+            200) ;;
+            30*)
+              grep -i '^location:' headers.txt | tr -d '\r' || true
+              echo "::error::Redirected - APP_URL must be the site root only, with no path such as /namaz."
+              exit 1
+              ;;
+            401)
+              echo "::error::Rejected - the CRON_SECRET here does not match the CRON_SECRET on the host."
+              exit 1
+              ;;
+            503)
+              echo "::error::CRON_SECRET is not set on the host. Add it there and redeploy."
+              exit 1
+              ;;
+            *)
+              head -c 500 response.body || true
+              echo
+              echo "::error::Reminder job returned HTTP ${status}"
+              exit 1
+              ;;
+          esac
+
+          # A 200 is not proof the job ran: the app answers 200 with HTML for any
+          # page it serves. Only a JSON body means a route handler replied.
+          if [ "$(head -c 1 response.body)" != "{" ]; then
+            head -c 300 response.body || true
+            echo
+            echo "::error::That is a page, not the job - HTML came back instead of JSON. Check APP_URL points at the site root."
             exit 1
           fi
+
+          cat response.body
+          echo

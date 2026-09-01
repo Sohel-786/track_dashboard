@@ -165,16 +165,23 @@ Set the schedule to **every 1 minute**, and add a request header
 too, but it ends up in logs and proxy history, and that value is a password.
 
 **2. GitHub Actions — already committed, nothing to sign up for.**
-`.github/workflows/namaz-reminders.yml` runs the job every 5 minutes. Add two
-repository secrets under **Settings → Secrets and variables → Actions**:
+`.github/workflows/namaz-reminders.yml` runs the job every 5 minutes. Under
+**Settings → Secrets and variables → Actions**, add one of each:
 
-| Secret | Value |
-|--------|-------|
-| `APP_URL` | `https://your-app.vercel.app` (no trailing slash) |
-| `CRON_SECRET` | the same value as the `CRON_SECRET` env var on the host |
+| Tab | Name | Value |
+|-----|------|-------|
+| **Variables** | `APP_URL` | `https://your-app.vercel.app` — the site **root**. No path, no trailing slash. |
+| **Secrets** | `CRON_SECRET` | the same value as the `CRON_SECRET` env var on the host |
+
+`APP_URL` goes in **Variables**, not Secrets: Actions masks every secret value in
+log output, so an `APP_URL` stored as a secret prints as `***` and hides the one
+detail worth seeing when a call goes wrong. A public site's address is not a
+password. (The workflow accepts it as a secret too, if you already made one.)
 
 Then open the **Actions** tab and run *Namaz reminders* once by hand to confirm
-the wiring. Two caveats: five minutes is GitHub's floor and scheduled runs are
+the wiring. The log prints the URL it called, the HTTP status, and the JSON the
+job returned — and fails loudly, with the reason named, on a redirect, a
+mismatched secret, or an HTML page coming back where JSON was expected. Two caveats: five minutes is GitHub's floor and scheduled runs are
 queued at low priority, so a tick can land 5–20 minutes late — a start
 announcement may miss its grace window on a bad day. And scheduled workflows are
 switched off automatically after 60 days without a commit. It is a good backstop
