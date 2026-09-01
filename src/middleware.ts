@@ -55,9 +55,14 @@ function withSecurityHeaders(response: NextResponse) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  /**
+   * `geolocation=(self)` lets the journey map ask for a position — only from
+   * this origin, only after the account opts in, and only once the browser
+   * grants permission. Everything else stays denied outright.
+   */
   response.headers.set(
     "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    "camera=(), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()"
   );
   return response;
 }

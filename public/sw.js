@@ -5,8 +5,12 @@
  * cache-first, including navigations — back when "/" rendered the Dashboard.
  * Any browser from that era can still hold that HTML, which is why the app
  * appeared to keep landing on the Dashboard long after the route moved.
+ *
+ * v6 adds the Map section. Map tiles are cross-origin and so are skipped by the
+ * fetch handler below entirely — they are never stored here, and the browser's
+ * own HTTP cache handles them.
  */
-const CACHE = "trackdash-v5";
+const CACHE = "trackdash-v6";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",

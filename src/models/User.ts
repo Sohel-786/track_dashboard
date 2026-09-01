@@ -62,6 +62,49 @@ const UserSchema = new Schema(
       max: 180,
       required: true,
     },
+
+    /**
+     * Location tracking is opt-in and off until the user turns it on. Nothing
+     * about a person's movements is recorded by default, and the switch is
+     * theirs — an admin cannot enable it on someone's behalf.
+     */
+    trackingEnabled: { type: Boolean, default: false, required: true },
+    /** Resume tracking automatically when the map page opens. */
+    trackingAutoStart: { type: Boolean, default: false, required: true },
+    /** Ask the GPS chip for its best fix — more accurate, more battery. */
+    trackingHighAccuracy: { type: Boolean, default: true, required: true },
+    /** Fixes within this radius of each other count as standing still (m). */
+    trackingStayRadiusMeters: {
+      type: Number,
+      default: 80,
+      min: 20,
+      max: 500,
+      required: true,
+    },
+    /** A stop shorter than this is passing through, not a visit (minutes). */
+    trackingMinStayMinutes: {
+      type: Number,
+      default: 5,
+      min: 1,
+      max: 120,
+      required: true,
+    },
+    /** How close a stay must be to a masjid to be counted as a visit to it (m). */
+    trackingMasjidRadiusMeters: {
+      type: Number,
+      default: 150,
+      min: 30,
+      max: 600,
+      required: true,
+    },
+    /** Days of raw track history to keep. 0 keeps everything. */
+    trackingRetentionDays: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 3650,
+      required: true,
+    },
   },
   { timestamps: true }
 );

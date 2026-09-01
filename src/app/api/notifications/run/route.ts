@@ -4,6 +4,7 @@ import connectDB from "@/lib/mongodb";
 import { fail, ok } from "@/lib/api-helpers";
 import { runNamazReminders } from "@/lib/namaz-reminders";
 import { isPushConfigured } from "@/lib/push";
+import { runTrackMaintenance } from "@/lib/track-service";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 /** Reminder timing must be evaluated live — never served from a cache. */
@@ -55,13 +56,27 @@ async function handle(request: NextRequest) {
   if (!isAuthorizedCron(request)) {
     return fail("Unauthorized", 401);
   }
-  if (!isPushConfigured()) {
-    return fail("Push notifications are not configured on this server", 503);
-  }
 
   await connectDB();
-  const summary = await runNamazReminders(new Date());
-  return ok({ ranAt: new Date().toISOString(), ...summary });
+
+  /**
+   * Reminders are the job's first duty, but not its only one: naming a stay
+   * costs a rate-limited OpenStreetMap round trip, so the map's backlog is
+   * worked off here too rather than making someone wait for it when they open
+   * the page. Both run on the same 15-minute tick.
+   */
+  const push = isPushConfigured()
+    ? await runNamazReminders(new Date())
+    : null;
+
+  const track = await runTrackMaintenance();
+
+  return ok({
+    ranAt: new Date().toISOString(),
+    /** Null when the deployment has no VAPID keypair — reminders are off. */
+    ...(push ?? { pushConfigured: false }),
+    track,
+  });
 }
 
 export async function GET(request: NextRequest) {

@@ -393,3 +393,218 @@ export type NamazAnalyticsResponse = {
     zamaat: boolean;
   }>;
 };
+
+/* ------------------------------------------------------------ journey map */
+
+export type TrackVisitView = {
+  id: string;
+  date: string;
+  startedAt: string;
+  endedAt: string;
+  durationMinutes: number;
+  lat: number;
+  lng: number;
+  spreadMeters: number;
+  pointCount: number;
+  name: string;
+  placeId: string | null;
+  placeKind: "masjid" | "place" | "unknown";
+  placeDistanceMeters: number | null;
+  isMasjid: boolean;
+  resolved: boolean;
+  /** A name lookup is still owed. False once named, or once the resolver gave up. */
+  pendingLookup: boolean;
+  hasCustomName: boolean;
+};
+
+export type TrackSummary = {
+  distanceMeters: number;
+  movingMinutes: number;
+  stationaryMinutes: number;
+  trackedMinutes: number;
+  maxSpeedKmh: number;
+  averageSpeedKmh: number;
+  pointCount: number;
+  firstAt: string | null;
+  lastAt: string | null;
+};
+
+export type TrackTripView = {
+  startedAt: string;
+  endedAt: string;
+  durationMinutes: number;
+  distanceMeters: number;
+  averageSpeedKmh: number;
+  fromName: string;
+  toName: string;
+};
+
+export type TrackDayResponse = {
+  date: string;
+  today: string;
+  trackingStart: string;
+  path: Array<{ lat: number; lng: number; ts: string }>;
+  visits: TrackVisitView[];
+  trips: TrackTripView[];
+  summary: TrackSummary;
+};
+
+export type TrackDayRollup = {
+  date: string;
+  dayLabel: string;
+  weekday: string;
+  distanceMeters: number;
+  movingMinutes: number;
+  visitCount: number;
+  masjidVisits: number;
+  masjidMinutes: number;
+  pointCount: number;
+};
+
+export type TrackPlaceStat = {
+  placeId: string | null;
+  name: string;
+  kind: "masjid" | "place" | "unknown";
+  lat: number;
+  lng: number;
+  address: string;
+  visitCount: number;
+  totalMinutes: number;
+  averageMinutes: number;
+  longestMinutes: number;
+  firstVisitAt: string;
+  lastVisitAt: string;
+  activeDays: number;
+};
+
+export type TrackOverviewResponse = {
+  appliedRange: { quick: string; from: string; to: string };
+  trackingStart: string;
+  from: string;
+  to: string;
+  totals: {
+    distanceMeters: number;
+    movingMinutes: number;
+    trackedDays: number;
+    visitCount: number;
+    masjidVisits: number;
+    masjidMinutes: number;
+    distinctMasjids: number;
+    distinctPlaces: number;
+    longestDayMeters: number;
+    longestDayDate: string | null;
+    averageDailyMeters: number;
+  };
+  daily: TrackDayRollup[];
+  byHour: Array<{ hour: number; visits: number; masjidVisits: number }>;
+  topPlaces: TrackPlaceStat[];
+};
+
+export type TrackPlacesResponse = {
+  appliedRange: { quick: string; from: string; to: string };
+  trackingStart: string;
+  places: TrackPlaceStat[];
+  count: number;
+};
+
+export type MasjidVisitRow = {
+  visitId: string;
+  date: string;
+  startedAt: string;
+  endedAt: string;
+  durationMinutes: number;
+  prayers: Array<{
+    prayer: NamazPrayerKey;
+    label: string;
+    onTime: boolean;
+    zamaat: boolean;
+    sunnah: boolean;
+  }>;
+};
+
+export type MasjidReport = {
+  placeId: string | null;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  visitCount: number;
+  totalMinutes: number;
+  averageMinutes: number;
+  longestMinutes: number;
+  activeDays: number;
+  firstVisitAt: string;
+  lastVisitAt: string;
+  prayerCount: number;
+  zamaatCount: number;
+  visits: MasjidVisitRow[];
+};
+
+export type TrackMasjidsResponse = {
+  appliedRange: { quick: string; from: string; to: string };
+  trackingStart: string;
+  masjids: MasjidReport[];
+  totals: {
+    distinctMasjids: number;
+    totalVisits: number;
+    totalMinutes: number;
+    averageMinutes: number;
+    prayerCount: number;
+    zamaatCount: number;
+    mostVisited: string | null;
+  };
+};
+
+export type NearbyMasjid = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  address: string;
+  osmType: string | null;
+  osmId: number | null;
+  distanceMeters: number;
+  bearing: number;
+  compass: string;
+  walkMinutes: number;
+  tags: Record<string, string>;
+};
+
+export type TrackNearbyResponse = {
+  center: { lat: number; lng: number };
+  radius: number;
+  qibla: { bearing: number; compass: string };
+  localTimes: Array<{
+    prayer: NamazPrayerKey;
+    label: string;
+    startsAt: string;
+    startsAtLabel: string;
+    endsAtLabel: string;
+  }>;
+  masjids: NearbyMasjid[];
+  count: number;
+};
+
+export type TrackingSettings = {
+  enabled: boolean;
+  autoStart: boolean;
+  highAccuracy: boolean;
+  stayRadiusMeters: number;
+  minStayMinutes: number;
+  masjidRadiusMeters: number;
+  retentionDays: number;
+};
+
+export type TrackSettingsResponse = {
+  settings: TrackingSettings;
+  limits: Record<string, { min: number; max: number }>;
+  stats: {
+    pointCount: number;
+    visitCount: number;
+    unresolvedVisits: number;
+    firstTrackedDate: string | null;
+  };
+  timeZone: string;
+  rebuiltDays?: number;
+  removed?: { points: number; visits: number };
+};
