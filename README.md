@@ -125,9 +125,11 @@ prune anything past a user's retention window). Deployments with no VAPID
 keypair get `"pushConfigured": false` in the response and still run the map
 upkeep.
 
-`vercel.json` registers a Vercel Cron every 15 minutes. **Vercel's Hobby plan
-only runs crons once a day**, so on Hobby use any external scheduler
-(cron-job.org, GitHub Actions, an always-on box) pointed at:
+**Vercel's Hobby plan only runs crons once a day**, and it rejects any tighter
+schedule *at deploy time* — a `*/15 * * * *` entry in `vercel.json` fails the
+build outright. So `vercel.json` registers no cron at all; the job is driven
+from outside instead. Point any external scheduler (cron-job.org, GitHub
+Actions, an always-on box) at:
 
 ```
 https://<your-app>/api/notifications/run?key=<CRON_SECRET>
