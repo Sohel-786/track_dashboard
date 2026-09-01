@@ -37,6 +37,16 @@ const NamazLogSchema = new Schema(
       required: true,
       default: false,
     },
+    /**
+     * On-time completion entered retroactively from the Kaza section, for a day
+     * that had already closed. It counts as on time everywhere (`isKaza` stays
+     * false); the flag exists only so that workspace can list and undo it.
+     */
+    backfilled: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
     /** Optional sunnah with this prayer */
     sunnah: {
       type: Boolean,

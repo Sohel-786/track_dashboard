@@ -46,6 +46,12 @@ const UserSchema = new Schema(
      * though its signature is still valid.
      */
     sessionVersion: { type: Number, default: 0, required: true },
+    /**
+     * When the password was last changed. Null for an account still on the one
+     * it was created with. Shown to admins so a reset can be confirmed at a
+     * glance, and so a stale credential is visible before it is a problem.
+     */
+    passwordChangedAt: { type: Date, default: null },
     /** Push reminders for prayers still unmarked inside their window. */
     namazRemindersEnabled: { type: Boolean, default: true, required: true },
     /** Minutes between repeat reminders for the same prayer (15–180). */

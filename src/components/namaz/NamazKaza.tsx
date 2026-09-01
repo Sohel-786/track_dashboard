@@ -8,6 +8,7 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  Clock3,
   History,
   Layers,
   Loader2,
@@ -54,6 +55,14 @@ import {
 
 type Extras = { sunnah: boolean; tasbeeh: boolean; zamaat: boolean };
 const NO_EXTRAS: Extras = { sunnah: false, tasbeeh: false, zamaat: false };
+
+/**
+ * How an outstanding slot gets cleared. Forgetting to log a whole day is not
+ * the same as missing the prayers in it, so the queue offers both: `ontime`
+ * backfills the entry the user simply never ticked, `kaza` records a real
+ * make-up. Only `kaza` counts against the on-time rate in analytics.
+ */
+type CompleteMode = "ontime" | "kaza";
 
 type SortOrder = "newest" | "oldest";
 
@@ -294,33 +303,36 @@ export function NamazKaza({
     setSort("newest");
   }
 
-  async function completeKaza(item: NamazMissedItem) {
+  async function completeItem(item: NamazMissedItem, mode: CompleteMode) {
     const key = itemKey(item);
-    setBusyKey(key);
+    setBusyKey(`${mode}:${key}`);
     try {
       const result = await api<NamazKazaQueueResponse>("/api/namaz/kaza", {
         method: "PUT",
         body: JSON.stringify({
           date: item.date,
           prayer: item.prayer,
+          onTime: mode === "ontime",
           ...extrasFor(key),
         }),
       });
       setData(result);
+      const day = format(parseISO(`${item.date}T00:00:00`), "dd MMM yyyy");
       toast.success(
-        `${item.label} Kaza recorded · ${format(parseISO(`${item.date}T00:00:00`), "dd MMM yyyy")}`
+        mode === "ontime"
+          ? `${item.label} logged as prayed on time · ${day}`
+          : `${item.label} Kaza recorded · ${day}`
       );
       onChanged?.();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not save Kaza");
+      toast.error(e instanceof ApiError ? e.message : "Could not save");
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function completeDay(group: DayGroup) {
-    const key = `day:${group.date}`;
-    setBusyKey(key);
+  async function completeDay(group: DayGroup, mode: CompleteMode) {
+    setBusyKey(`day:${mode}:${group.date}`);
     try {
       const result = await api<NamazKazaQueueResponse>("/api/namaz/kaza", {
         method: "PUT",
@@ -328,27 +340,34 @@ export function NamazKaza({
           items: group.prayers.map((p) => ({
             date: p.date,
             prayer: p.prayer,
+            onTime: mode === "ontime",
             ...extrasFor(itemKey(p)),
           })),
         }),
       });
       setData(result);
+      const saved = result.completed ?? group.prayers.length;
+      const day = format(parseISO(`${group.date}T00:00:00`), "dd MMM yyyy");
       toast.success(
-        `${result.completed ?? group.prayers.length} make-ups recorded for ${format(
-          parseISO(`${group.date}T00:00:00`),
-          "dd MMM yyyy"
-        )}`
+        mode === "ontime"
+          ? `${saved} prayer${saved === 1 ? "" : "s"} logged on time for ${day}`
+          : `${saved} make-up${saved === 1 ? "" : "s"} recorded for ${day}`
       );
       if (result.errors?.length) toast.error(result.errors[0]);
       onChanged?.();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not save Kaza");
+      toast.error(e instanceof ApiError ? e.message : "Could not save");
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function undoKaza(item: { date: string; prayer: NamazPrayerKey; label: string }) {
+  async function undoEntry(item: {
+    date: string;
+    prayer: NamazPrayerKey;
+    label: string;
+    mode: CompleteMode;
+  }) {
     const key = `undo:${itemKey(item)}`;
     setBusyKey(key);
     try {
@@ -358,7 +377,11 @@ export function NamazKaza({
           body: JSON.stringify({ date: item.date, prayer: item.prayer }),
         })
       );
-      toast.success(`${item.label} Kaza undone`);
+      toast.success(
+        item.mode === "ontime"
+          ? `${item.label} on-time entry undone`
+          : `${item.label} Kaza undone`
+      );
       onChanged?.();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not undo");
@@ -559,7 +582,7 @@ export function NamazKaza({
           ) : (
             <>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Dates with missed prayers — click one to open it in place
+                Dates with unrecorded prayers — click one to open it in place
               </p>
 
               <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2.5">
@@ -584,8 +607,8 @@ export function NamazKaza({
                           busyKey={busyKey}
                           extrasFor={extrasFor}
                           onExtrasChange={setExtras}
-                          onComplete={completeKaza}
-                          onCompleteAll={() => void completeDay(group)}
+                          onComplete={completeItem}
+                          onCompleteAll={(mode) => void completeDay(group, mode)}
                           onClose={() => setSelectedDate(null)}
                         />
                       ) : null}
@@ -609,7 +632,7 @@ export function NamazKaza({
             <span className="inline-flex items-center gap-2">
               <History className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-bold tracking-tight">
-                Recently completed Kaza
+                Recently recorded here
               </span>
               <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold tabular-nums text-muted-foreground">
                 {data.recent.length}
@@ -630,20 +653,26 @@ export function NamazKaza({
                   className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                       {item.label}
-                      <span className="ml-2 font-normal text-muted-foreground">
+                      <span className="font-normal text-muted-foreground">
                         for{" "}
                         {format(
                           parseISO(`${item.date}T00:00:00`),
                           "EEE, dd MMM yyyy"
                         )}
                       </span>
+                      <ModeChip mode={item.mode} />
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {item.kazaAt
-                        ? `Made up ${format(new Date(item.kazaAt), "dd MMM yyyy · h:mm a")}`
-                        : "Made up"}
+                      {item.completedAt
+                        ? `${item.mode === "ontime" ? "Logged" : "Made up"} ${format(
+                            new Date(item.completedAt),
+                            "dd MMM yyyy · h:mm a"
+                          )}`
+                        : item.mode === "ontime"
+                          ? "Logged"
+                          : "Made up"}
                       {item.sunnah ? " · Sunnah" : ""}
                       {item.tasbeeh ? " · Tasbeeh" : ""}
                       {item.zamaat ? " · Zamaat" : ""}
@@ -654,7 +683,7 @@ export function NamazKaza({
                     variant="ghost"
                     size="sm"
                     loading={busyKey === `undo:${itemKey(item)}`}
-                    onClick={() => void undoKaza(item)}
+                    onClick={() => void undoEntry(item)}
                   >
                     {busyKey === `undo:${itemKey(item)}` ? null : (
                       <Undo2 className="h-3.5 w-3.5" />
@@ -712,9 +741,18 @@ function KazaSummary({
             {pending === 0 ? "Nothing outstanding" : "Outstanding Kaza"}
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Prayers from days that have already closed. Today&apos;s prayers stay
-            on the <span className="font-semibold text-foreground">Today</span>{" "}
-            tab, where they can still be marked as prayed on time until midnight.
+            Prayers from days that have already closed. Open a date and record
+            each one as{" "}
+            <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+              prayed on time
+            </span>{" "}
+            if you only forgot to log it, or as{" "}
+            <span className="font-semibold text-amber-800 dark:text-amber-300">
+              Kaza
+            </span>{" "}
+            if you actually made it up later. Today&apos;s prayers stay on the{" "}
+            <span className="font-semibold text-foreground">Today</span> tab
+            until midnight.
             {trackingStart
               ? ` Tracking from ${trackingStartLabel(trackingStart)}.`
               : null}
@@ -823,7 +861,7 @@ function EmptyQueue() {
       </p>
       <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
         When a day ends with prayers still unrecorded, that date appears here so
-        you can make them up in order.
+        you can log them — on time or as Kaza — in order.
       </p>
     </div>
   );
@@ -905,20 +943,22 @@ function DayPanel({
   busyKey: string | null;
   extrasFor: (key: string) => Extras;
   onExtrasChange: (key: string, patch: Partial<Extras>) => void;
-  onComplete: (item: NamazMissedItem) => void;
-  onCompleteAll: () => void;
+  onComplete: (item: NamazMissedItem, mode: CompleteMode) => void;
+  onCompleteAll: (mode: CompleteMode) => void;
   onClose: () => void;
 }) {
   const parsed = parseISO(`${group.date}T00:00:00`);
-  const bulkBusy = busyKey === `day:${group.date}`;
+  const bulkOnTimeBusy = busyKey === `day:ontime:${group.date}`;
+  const bulkKazaBusy = busyKey === `day:kaza:${group.date}`;
+  const bulkBusy = bulkOnTimeBusy || bulkKazaBusy;
 
   return (
     <div
       className="col-span-full overflow-hidden rounded-xl border-2 border-amber-600/60 bg-card shadow-md dark:border-amber-400/50"
       role="region"
-      aria-label={`Missed prayers for ${group.date}`}
+      aria-label={`Unrecorded prayers for ${group.date}`}
     >
-      <div className="flex flex-col gap-3 border-b border-border bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:bg-amber-400/10">
+      <div className="flex flex-col gap-3 border-b border-border bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-5 dark:bg-amber-400/10">
         <div className="min-w-0">
           <h3 className="text-base font-bold tracking-tight">
             {format(parsed, "EEEE, d MMMM yyyy")}
@@ -926,21 +966,47 @@ function DayPanel({
           <p className="text-xs text-muted-foreground">
             {format(parsed, "dd/MM/yyyy")} · {group.daysAgo} day
             {group.daysAgo === 1 ? "" : "s"} ago · {group.prayers.length} prayer
-            {group.prayers.length === 1 ? "" : "s"} still need Kaza
+            {group.prayers.length === 1 ? "" : "s"} still unrecorded
+          </p>
+          <p className="mt-1.5 max-w-xl text-xs text-muted-foreground">
+            Prayed one of these in its own window and only forgot to tick it?
+            Record it as{" "}
+            <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+              prayed on time
+            </span>{" "}
+            — keep{" "}
+            <span className="font-semibold text-amber-800 dark:text-amber-300">
+              Kaza
+            </span>{" "}
+            for the ones you genuinely made up later.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {group.prayers.length > 1 ? (
-            <Button
-              type="button"
-              variant="amber"
-              size="sm"
-              loading={bulkBusy}
-              onClick={onCompleteAll}
-            >
-              {bulkBusy ? null : <Layers className="h-3.5 w-3.5" />}
-              Mark all {group.prayers.length}
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="emerald"
+                size="sm"
+                loading={bulkOnTimeBusy}
+                disabled={bulkBusy}
+                onClick={() => onCompleteAll("ontime")}
+              >
+                {bulkOnTimeBusy ? null : <CheckCheck className="h-3.5 w-3.5" />}
+                All {group.prayers.length} on time
+              </Button>
+              <Button
+                type="button"
+                variant="amber"
+                size="sm"
+                loading={bulkKazaBusy}
+                disabled={bulkBusy}
+                onClick={() => onCompleteAll("kaza")}
+              >
+                {bulkKazaBusy ? null : <Layers className="h-3.5 w-3.5" />}
+                All {group.prayers.length} Kaza
+              </Button>
+            </>
           ) : null}
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             <X className="h-3.5 w-3.5" />
@@ -952,7 +1018,9 @@ function DayPanel({
       <ul className="divide-y divide-border">
         {group.prayers.map((item) => {
           const key = itemKey(item);
-          const busy = busyKey === key || bulkBusy;
+          const onTimeBusy = busyKey === `ontime:${key}`;
+          const kazaBusy = busyKey === `kaza:${key}`;
+          const busy = onTimeBusy || kazaBusy || bulkBusy;
           const extras = extrasFor(key);
           const meta = NAMAZ_PRAYER_META[item.prayer as NamazPrayer] ?? null;
           return (
@@ -977,7 +1045,7 @@ function DayPanel({
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Pick the extras you performed with the make-up, then record it.
+                    Pick the extras you performed, then say how it was offered.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <ExtraToggle
@@ -1010,22 +1078,51 @@ function DayPanel({
                 </div>
               </div>
 
-              <Button
-                type="button"
-                variant="amber"
-                loading={busyKey === key}
-                disabled={busy}
-                onClick={() => onComplete(item)}
-                className="shrink-0 lg:min-w-[9.5rem]"
-              >
-                {busyKey === key ? null : <Check className="h-4 w-4" />}
-                Mark Kaza
-              </Button>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:min-w-[20.5rem]">
+                <Button
+                  type="button"
+                  variant="emerald"
+                  loading={onTimeBusy}
+                  disabled={busy}
+                  onClick={() => onComplete(item, "ontime")}
+                  className="flex-1"
+                >
+                  {onTimeBusy ? null : <Check className="h-4 w-4" />}
+                  Prayed on time
+                </Button>
+                <Button
+                  type="button"
+                  variant="amber"
+                  loading={kazaBusy}
+                  disabled={busy}
+                  onClick={() => onComplete(item, "kaza")}
+                  className="flex-1"
+                >
+                  {kazaBusy ? null : <Clock3 className="h-4 w-4" />}
+                  Mark Kaza
+                </Button>
+              </div>
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+/** Distinguishes a backfilled on-time entry from a real make-up in the log. */
+function ModeChip({ mode }: { mode: CompleteMode }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
+        mode === "ontime"
+          ? "border-emerald-500/50 bg-emerald-500/12 text-emerald-900 dark:border-emerald-400/50 dark:bg-emerald-400/12 dark:text-emerald-100"
+          : "border-amber-500/50 bg-amber-500/12 text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/12 dark:text-amber-100"
+      )}
+    >
+      {mode === "ontime" ? "On time" : "Kaza"}
+    </span>
   );
 }
 

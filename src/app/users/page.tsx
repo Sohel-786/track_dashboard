@@ -1,10 +1,24 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Search, UserPlus } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  Copy,
+  Eye,
+  EyeOff,
+  KeyRound,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  UserPlus,
+} from "lucide-react";
+import { format, parseISO } from "date-fns";
 import toast from "react-hot-toast";
 import { api, ApiError } from "@/lib/client-api";
 import { todayIso, trackingStartLabel } from "@/lib/date-ranges";
+import { generatePassword } from "@/lib/generate-password";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/AuthProvider";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { Dialog } from "@/components/ui/Dialog";
@@ -47,6 +61,17 @@ export default function UsersPage() {
   const [startEditing, setStartEditing] = useState<ManagedUser | null>(null);
   const [startDraft, setStartDraft] = useState<string>("");
   const [startSaving, setStartSaving] = useState(false);
+
+  /**
+   * Password reset. The dialog runs in two phases: compose the new password,
+   * then — once saved — hold it on screen so it can still be copied. Closing
+   * early is the one way to lose it, since nothing can read the hash back.
+   */
+  const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetVisible, setResetVisible] = useState(false);
+  const [resetSaving, setResetSaving] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,6 +141,50 @@ export default function UsersPage() {
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Update failed");
+    }
+  }
+
+  function openReset(u: ManagedUser) {
+    setResetTarget(u);
+    setResetPassword("");
+    setResetVisible(false);
+    setResetDone(false);
+  }
+
+  function closeReset() {
+    setResetTarget(null);
+    setResetPassword("");
+    setResetVisible(false);
+    setResetDone(false);
+  }
+
+  async function copyPassword() {
+    try {
+      await navigator.clipboard.writeText(resetPassword);
+      toast.success("Password copied");
+    } catch {
+      toast.error("Could not copy — select the password and copy it manually");
+    }
+  }
+
+  async function submitReset(e: FormEvent) {
+    e.preventDefault();
+    if (!resetTarget) return;
+    setResetSaving(true);
+    try {
+      await api(`/api/users/${resetTarget.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ password: resetPassword }),
+      });
+      // Keep the password on screen — this is the last chance to copy it.
+      setResetDone(true);
+      setResetVisible(true);
+      toast.success(`Password reset for @${resetTarget.username}`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Reset failed");
+    } finally {
+      setResetSaving(false);
     }
   }
 
@@ -196,7 +265,7 @@ export default function UsersPage() {
         totalCount={filtered.length}
         loading={loading}
         empty="No users found."
-        minWidth={560}
+        minWidth={720}
       >
         <thead className={tableHeadRowClass}>
           <tr>
@@ -238,20 +307,192 @@ export default function UsersPage() {
                 <StatusBadge active={u.isActive} />
               </td>
               <td className={`${tableBodyCellClass} text-right`}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={u.id === user?.id}
-                  onClick={() => void toggleActive(u)}
-                >
-                  {u.isActive ? "Deactivate" : "Activate"}
-                </Button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openReset(u)}
+                    title={`Set a new password for @${u.username}`}
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Reset password
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={u.id === user?.id}
+                    onClick={() => void toggleActive(u)}
+                  >
+                    {u.isActive ? "Deactivate" : "Activate"}
+                  </Button>
+                </div>
               </td>
             </tr>
           ))}
         </tbody>
       </AppDataTable>
+
+      <Dialog
+        isOpen={resetTarget !== null}
+        onClose={closeReset}
+        title={
+          resetTarget ? `Reset password · ${resetTarget.name}` : "Reset password"
+        }
+        footer={
+          resetDone ? (
+            <Button type="button" onClick={closeReset} className="w-full">
+              Done
+            </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeReset}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="reset-password-form"
+                loading={resetSaving}
+                disabled={resetPassword.length < 8}
+                className="flex-1"
+              >
+                {resetSaving ? null : <KeyRound className="h-4 w-4" />}
+                Reset password
+              </Button>
+            </div>
+          )
+        }
+      >
+        {resetTarget ? (
+          <form
+            id="reset-password-form"
+            onSubmit={submitReset}
+            className="space-y-4"
+          >
+            {resetDone ? (
+              <div className="flex gap-3 rounded-xl border border-emerald-500/50 bg-emerald-500/12 px-3 py-3 text-emerald-900 dark:border-emerald-400/50 dark:bg-emerald-400/12 dark:text-emerald-100">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0 text-xs">
+                  <p className="font-bold">
+                    Password reset for @{resetTarget.username}
+                  </p>
+                  <p className="mt-0.5">
+                    Copy it now and hand it over — once this closes it cannot be
+                    read back, only reset again.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3 rounded-xl border border-amber-500/50 bg-amber-500/12 px-3 py-3 text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/12 dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0 text-xs">
+                  {resetTarget.id === user?.id ? (
+                    <>
+                      <p className="font-bold">This is your own account.</p>
+                      <p className="mt-0.5">
+                        You stay signed in here, but every other device signed in
+                        as @{resetTarget.username} is signed out immediately.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold">
+                        @{resetTarget.username} is signed out everywhere.
+                      </p>
+                      <p className="mt-0.5">
+                        Every device signed in as this account stops working the
+                        moment you reset, and needs the new password to return.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <FilterLabel>New password</FilterLabel>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={resetVisible ? "text" : "password"}
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    readOnly={resetDone}
+                    required
+                    minLength={8}
+                    maxLength={128}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    placeholder="At least 8 characters"
+                    className={cn(
+                      "pr-10 font-mono",
+                      resetDone && "bg-muted/50"
+                    )}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setResetVisible((v) => !v)}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    aria-label={
+                      resetVisible ? "Hide password" : "Show password"
+                    }
+                  >
+                    {resetVisible ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void copyPassword()}
+                  disabled={!resetPassword}
+                  title="Copy to clipboard"
+                  aria-label="Copy password to clipboard"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {resetDone ? null : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => {
+                    setResetPassword(generatePassword());
+                    setResetVisible(true);
+                  }}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Generate a strong password
+                </Button>
+              )}
+            </div>
+
+            {resetDone ? null : (
+              <p className="rounded-xl border border-border bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+                {resetTarget.passwordChangedAt
+                  ? `Last changed ${format(
+                      parseISO(resetTarget.passwordChangedAt),
+                      "d MMM yyyy · h:mm a"
+                    )}.`
+                  : "Still on the password this account was created with."}{" "}
+                Nothing is emailed — pass the new password on yourself.
+              </p>
+            )}
+          </form>
+        ) : null}
+      </Dialog>
 
       <Dialog
         isOpen={startEditing !== null}

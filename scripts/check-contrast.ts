@@ -281,6 +281,18 @@ text(
   hexToRgb("#fcd34d")
 );
 
+// The emerald button flips the same way.
+text(
+  "dark: emerald-950 label on emerald-500 button",
+  hexToRgb("#022c22"),
+  hexToRgb("#10b981")
+);
+text(
+  "dark: emerald-950 label on emerald-400 hover",
+  hexToRgb("#022c22"),
+  hexToRgb("#34d399")
+);
+
 /* ------------------------------- progress fills against the `bg-muted` track */
 
 const FILLS: Record<string, [string, string]> = {

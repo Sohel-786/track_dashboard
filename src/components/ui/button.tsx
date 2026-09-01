@@ -24,6 +24,9 @@ const buttonVariants = cva(
          */
         amber:
           "bg-amber-700 text-white shadow-sm hover:bg-amber-800 dark:bg-amber-400 dark:text-amber-950 dark:hover:bg-amber-300",
+        /* Same reasoning as amber: emerald-700 in light, bright fill in dark. */
+        emerald:
+          "bg-emerald-700 text-white shadow-sm hover:bg-emerald-800 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400",
       },
       size: {
         default: "h-10 px-4 py-2",

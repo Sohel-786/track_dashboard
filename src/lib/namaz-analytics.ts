@@ -23,6 +23,8 @@ export type StoredNamazLog = {
   tasbeeh: boolean;
   zamaat?: boolean;
   isKaza?: boolean;
+  /** On-time entry backfilled from the Kaza section after the day closed. */
+  backfilled?: boolean;
   prayedAt?: Date | string | null;
   kazaAt?: Date | string | null;
 };

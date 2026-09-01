@@ -258,6 +258,8 @@ export async function PUT(request: NextRequest) {
         $set: {
           prayed: true,
           isKaza: false,
+          // Logged in its own day, so it is not a Kaza-section backfill.
+          backfilled: false,
           sunnah,
           tasbeeh,
           zamaat,

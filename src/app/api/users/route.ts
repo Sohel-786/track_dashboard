@@ -39,6 +39,9 @@ export async function GET() {
         role: u.role,
         isActive: u.isActive,
         createdAt: u.createdAt,
+        passwordChangedAt: u.passwordChangedAt
+          ? new Date(u.passwordChangedAt).toISOString()
+          : null,
         trackingStartDate: u.trackingStartDate ?? null,
         ...resolveTrackingStart(u),
       }))
@@ -81,6 +84,7 @@ export async function POST(request: NextRequest) {
         name: user.name,
         role: user.role,
         isActive: user.isActive,
+        passwordChangedAt: null,
         trackingStartDate: user.trackingStartDate ?? null,
         ...resolveTrackingStart(user),
       },

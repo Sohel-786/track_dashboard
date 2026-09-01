@@ -254,6 +254,8 @@ export type AdminUser = {
   role: UserRole;
   isActive: boolean;
   createdAt?: string;
+  /** Last password reset, or null while the account is on its original one. */
+  passwordChangedAt: string | null;
   /** Explicit override, or null when derived from the account creation day. */
   trackingStartDate: string | null;
   /** Resolved first tracked day, after applying the deployment-wide floor. */
@@ -276,7 +278,9 @@ export type NamazKazaRecentItem = {
   date: string;
   prayer: NamazPrayerKey;
   label: string;
-  kazaAt: string | null;
+  /** How the slot was cleared from the Kaza section. */
+  mode: "kaza" | "ontime";
+  completedAt: string | null;
   sunnah: boolean;
   tasbeeh: boolean;
   zamaat: boolean;
@@ -298,6 +302,7 @@ export type NamazKazaQueueResponse = {
   outstanding: NamazMissedItem[];
   count: number;
   graceToday: NamazMissedItem[];
+  /** Entries this section recorded, newest first — make-ups and on-time both. */
   recent: NamazKazaRecentItem[];
   stats: NamazKazaStats;
   /** Bulk write results. */

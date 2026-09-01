@@ -4,10 +4,13 @@ import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 import {
   authErrorResponse,
+  createSessionToken,
   invalidateAccountCache,
   requireAdmin,
+  SESSION_COOKIE,
+  sessionCookieOptions,
 } from "@/lib/auth";
-import { hashPassword } from "@/lib/passwords";
+import { hashPassword, verifyPassword } from "@/lib/passwords";
 import { fail, isObjectId, ok } from "@/lib/api-helpers";
 import { todayIso } from "@/lib/date-ranges";
 import { resolveTrackingStart } from "@/lib/user-settings";
@@ -57,6 +60,18 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
     }
 
+    /**
+     * A reset that lands on the same password would sign every device out for
+     * nothing, and usually means the old one was pasted by mistake. Checked
+     * before anything is mutated so the request is rejected whole.
+     */
+    if (
+      parsed.data.password &&
+      (await verifyPassword(parsed.data.password, user.passwordHash))
+    ) {
+      return fail("That is already this account's password");
+    }
+
     if (parsed.data.name) user.name = parsed.data.name.trim();
 
     /**
@@ -79,6 +94,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
     if (parsed.data.password) {
       user.passwordHash = await hashPassword(parsed.data.password);
+      user.passwordChangedAt = new Date();
       revokeSessions = true;
     }
     if (revokeSessions) {
@@ -94,14 +110,36 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     await user.save();
     invalidateAccountCache(String(user._id));
 
-    return ok({
+    const response = ok({
       id: String(user._id),
       username: user.username,
       name: user.name,
       role: user.role,
       isActive: user.isActive,
+      passwordChangedAt: user.passwordChangedAt
+        ? new Date(user.passwordChangedAt).toISOString()
+        : null,
       ...resolveTrackingStart(user),
     });
+
+    /**
+     * Resetting your own password is how an admin changes it — but the
+     * sessionVersion bump above has just invalidated the cookie this very
+     * request arrived with. Re-mint it so the admin is not thrown to /login by
+     * their own reset; every *other* device still fails the version check.
+     */
+    if (revokeSessions && String(user._id) === admin.sub) {
+      const token = await createSessionToken({
+        sub: String(user._id),
+        username: user.username,
+        name: user.name,
+        role: user.role as "admin" | "user",
+        sessionVersion: user.sessionVersion ?? 0,
+      });
+      response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
+    }
+
+    return response;
   } catch (error) {
     return authErrorResponse(error);
   }

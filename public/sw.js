@@ -1,5 +1,12 @@
 /* TrackDash service worker — network-first navigations + Namaz push reminders */
-const CACHE = "trackdash-v4";
+/**
+ * Bumping this name is what triggers the purge in `activate` below. It matters
+ * more than it looks: `trackdash-v1` precached "/" and answered *every* GET
+ * cache-first, including navigations — back when "/" rendered the Dashboard.
+ * Any browser from that era can still hold that HTML, which is why the app
+ * appeared to keep landing on the Dashboard long after the route moved.
+ */
+const CACHE = "trackdash-v5";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
@@ -25,8 +32,25 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
       )
+      // Drop any HTML an older worker stored, including its precached "/".
+      .then(() =>
+        caches.open(CACHE).then((cache) =>
+          cache.keys().then((requests) =>
+            Promise.all(
+              requests
+                .filter((r) => r.mode === "navigate" || r.url.endsWith("/"))
+                .map((r) => cache.delete(r))
+            )
+          )
+        )
+      )
       .then(() => self.clients.claim())
   );
+});
+
+/** Lets a waiting worker take over as soon as the page asks it to. */
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 function offlineFallback() {
@@ -47,15 +71,16 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
 
-  // HTML navigations: always prefer network so login/auth redirects stay fresh.
+  /**
+   * HTML navigations: network only.
+   *
+   * Nothing here ever *writes* a navigation into the cache, so a cache hit
+   * could only be a stale page left by an older service worker — exactly what
+   * pinned the app to the old Dashboard "/" for so long. Falling back to the
+   * offline notice instead means a redirect can never be answered from a cache.
+   */
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((response) => response)
-        .catch(() =>
-          caches.match(request).then((cached) => cached || offlineFallback())
-        )
-    );
+    event.respondWith(fetch(request).catch(() => offlineFallback()));
     return;
   }
 
