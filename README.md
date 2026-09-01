@@ -21,10 +21,24 @@ to do on it. Entry analytics live at **/dashboard**.
 
 ## Namaz push reminders
 
-While a prayer's window is open and the prayer is not yet marked, TrackDash
-sends a Web Push notification — it lands in the phone's notification shade like
-any other app. It repeats on the chosen interval (30m / 1h / 2h, default 1h)
-and stops the moment the prayer is marked or the window closes.
+TrackDash sends two different kinds of notification, and only the second one is
+on a timer:
+
+| When | What arrives |
+|------|--------------|
+| The moment a prayer's window opens | **It's Asar time** — 5:10 pm – 6:57 pm · mark it once you've prayed |
+| Every interval after that, while it is still unmarked | **Asar still unmarked** — Until 6:57 pm · 1h 16m left |
+| Once under 30 minutes remain | **Asar ends soon** — Until 6:57 pm · 16m left |
+
+**The interval never delays the first notification.** Picking 30m / 1h / 2h
+(default 1h) sets the gap between *repeats* — so on 30m, Asar starting at 5:10
+announces itself at 5:10 and nudges again at 5:40, 6:10, and so on. Everything
+stops the moment the prayer is marked or the window closes.
+
+A start announcement only fires while the window genuinely just opened (within
+about 12 minutes). If the scheduler was down and comes back mid-afternoon, the
+first notification is phrased as a reminder rather than announcing a prayer time
+that passed an hour ago.
 
 The notification carries a **Mark prayed** button that writes the entry straight
 from the service worker, without opening the app.
@@ -116,28 +130,71 @@ test notification so you can confirm delivery straight away.
 > On iOS, Web Push only works once the site is **added to the Home Screen** and
 > opened as an app. That is an Apple platform restriction, not an app setting.
 
-### Scheduling the job
+### Scheduling the job — reminders do not work without this
 
-The job at `/api/notifications/run` is safe to call as often as you like — it is
-idempotent and rate-limited per slot. It does two things on each tick: send any
-due prayer reminders, and work off the map's backlog of unnamed stops (plus
-prune anything past a user's retention window). Deployments with no VAPID
-keypair get `"pushConfigured": false` in the response and still run the map
-upkeep.
+**Nothing in the app watches the clock.** Prayer times are only noticed when
+something outside calls `/api/notifications/run`, and if nothing does, the
+feature is silently dead: the toggle still says on, the browser permission is
+still granted, and the **test button still works** — because a test is sent
+directly and never goes near the job. That combination is the single most likely
+reason reminders "just don't arrive". The reminders card on **/namaz** says so
+outright when the job has not been called in the last 45 minutes.
+
+The job is safe to call as often as you like — it is idempotent and claims each
+slot atomically, so overlapping calls cannot double-send. **Call it once a
+minute.** That is what makes a prayer announce itself at 5:10 rather than at
+whenever the next coarse tick happens to land. A tick with nothing due is a
+couple of indexed reads; the map upkeep it also drives (naming stops, pruning
+past the retention window) paces itself to once every 15 minutes so the free
+OpenStreetMap services are not hammered.
 
 **Vercel's Hobby plan only runs crons once a day**, and it rejects any tighter
 schedule *at deploy time* — a `*/15 * * * *` entry in `vercel.json` fails the
-build outright. So `vercel.json` registers no cron at all; the job is driven
-from outside instead. Point any external scheduler (cron-job.org, GitHub
-Actions, an always-on box) at:
+build outright. So `vercel.json` registers no cron at all and the job is driven
+from outside. Two free ways to do that:
+
+**1. cron-job.org — recommended, one minute, no repo involved.**
+Sign up (free), create a job, and point it at:
 
 ```
-https://<your-app>/api/notifications/run?key=<CRON_SECRET>
+https://<your-app>/api/notifications/run
 ```
 
-every 10–15 minutes. The secret is also accepted as an `x-cron-secret` header
-or an `Authorization: Bearer` token (which is what Vercel Cron sends), and is
-compared in constant time.
+Set the schedule to **every 1 minute**, and add a request header
+`x-cron-secret: <CRON_SECRET>`. Prefer the header: a `?key=` query string works
+too, but it ends up in logs and proxy history, and that value is a password.
+
+**2. GitHub Actions — already committed, nothing to sign up for.**
+`.github/workflows/namaz-reminders.yml` runs the job every 5 minutes. Add two
+repository secrets under **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|--------|-------|
+| `APP_URL` | `https://your-app.vercel.app` (no trailing slash) |
+| `CRON_SECRET` | the same value as the `CRON_SECRET` env var on the host |
+
+Then open the **Actions** tab and run *Namaz reminders* once by hand to confirm
+the wiring. Two caveats: five minutes is GitHub's floor and scheduled runs are
+queued at low priority, so a tick can land 5–20 minutes late — a start
+announcement may miss its grace window on a bad day. And scheduled workflows are
+switched off automatically after 60 days without a commit. It is a good backstop
+and a poor sole scheduler; running both at once is fine.
+
+Whatever calls it, the secret is accepted as an `x-cron-secret` header, an
+`Authorization: Bearer` token, or a `?key=` query string, and is compared in
+constant time.
+
+#### Checking it is actually running
+
+```bash
+curl -s -H "x-cron-secret: $CRON_SECRET"   https://<your-app>/api/notifications/run | jq
+```
+
+`checkedUsers` is how many accounts have a device registered, `openSlot` is the
+prayer whose window is open right now (null between sunrise and Zohar),
+`startPings` counts "it's prayer time" announcements sent on that tick, and
+`track` is null on the ticks between map passes — which is expected, not a
+failure.
 
 
 ## Journey map

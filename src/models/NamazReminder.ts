@@ -3,8 +3,9 @@ import { NAMAZ_PRAYERS } from "@/lib/namaz";
 
 /**
  * One row per user + calendar day + prayer, recording when that prayer was last
- * nudged. The reminder job reads it to answer a single question: has an hour
- * passed since the last nudge for this exact slot?
+ * nudged. Its existence is the answer to "has this window been announced yet?",
+ * and its `lastSentAt` to "is another nudge due?" — the two questions the
+ * reminder job asks about every open slot.
  *
  * Rows expire on their own a week after the prayer, so the collection stays the
  * size of "recent activity" rather than growing forever.
@@ -25,6 +26,12 @@ const NamazReminderSchema = new Schema(
     },
     prayer: { type: String, required: true, enum: NAMAZ_PRAYERS },
     lastSentAt: { type: Date, required: true },
+    /**
+     * When the "it's prayer time" ping went out — null when the window had
+     * already been running for a while by the time the scheduler first saw it,
+     * so a late tick never announces a start that is long past.
+     */
+    startAnnouncedAt: { type: Date, default: null },
     sentCount: { type: Number, default: 1, required: true },
     /** TTL anchor — MongoDB removes the row once this instant passes. */
     expiresAt: { type: Date, required: true },

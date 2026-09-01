@@ -11,6 +11,11 @@ import {
   MAX_REMINDER_INTERVAL_MINUTES,
   MIN_REMINDER_INTERVAL_MINUTES,
 } from "@/lib/namaz-reminders";
+import {
+  JOB_NOTIFICATIONS,
+  SCHEDULER_STALE_AFTER_MINUTES,
+  getLastJobRun,
+} from "@/lib/job-runs";
 
 /**
  * The server POSTs to whatever endpoint it is given, so an unvalidated value
@@ -79,7 +84,7 @@ const prefsSchema = z.object({
 });
 
 async function statusFor(userId: string) {
-  const [user, devices] = await Promise.all([
+  const [user, devices, lastJobRun] = await Promise.all([
     User.findById(userId)
       .select("namazRemindersEnabled namazReminderIntervalMinutes")
       .lean(),
@@ -87,7 +92,18 @@ async function statusFor(userId: string) {
       .select("endpoint device createdAt lastSuccessAt")
       .sort({ createdAt: -1 })
       .lean(),
+    getLastJobRun(JOB_NOTIFICATIONS),
   ]);
+
+  /**
+   * Permission granted, device registered, and still nothing arrives — that is
+   * almost always a scheduler nobody set up, not a delivery problem. Reporting
+   * the last tick lets the UI say so instead of leaving the user guessing.
+   */
+  const schedulerRunning =
+    lastJobRun !== null &&
+    Date.now() - lastJobRun.getTime() <=
+      SCHEDULER_STALE_AFTER_MINUTES * 60_000;
 
   return {
     /** False when the deployment has no VAPID keypair — UI hides the toggle. */
@@ -96,6 +112,9 @@ async function statusFor(userId: string) {
     enabled: user?.namazRemindersEnabled ?? true,
     intervalMinutes:
       user?.namazReminderIntervalMinutes ?? DEFAULT_REMINDER_INTERVAL_MINUTES,
+    /** Last tick of `/api/notifications/run`, or null if it never ran. */
+    schedulerLastRunAt: lastJobRun ? lastJobRun.toISOString() : null,
+    schedulerRunning,
     deviceCount: devices.length,
     devices: devices.map((d) => ({
       id: String(d._id),

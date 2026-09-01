@@ -5,11 +5,28 @@ import { fail, ok } from "@/lib/api-helpers";
 import { runNamazReminders } from "@/lib/namaz-reminders";
 import { isPushConfigured } from "@/lib/push";
 import { runTrackMaintenance } from "@/lib/track-service";
+import {
+  JOB_NOTIFICATIONS,
+  JOB_TRACK_MAINTENANCE,
+  claimPacedJob,
+  recordJobRun,
+} from "@/lib/job-runs";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 /** Reminder timing must be evaluated live — never served from a cache. */
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+/**
+ * Shortest gap between two map-upkeep passes.
+ *
+ * The reminder sweep wants to run every minute so a prayer is announced on its
+ * own time rather than at the next coarse tick. Naming a stay does not: it
+ * costs a rate-limited OpenStreetMap round trip, and hammering a free service
+ * once a minute is the fastest way to lose access to it. So the two are paced
+ * apart — every tick sweeps reminders, roughly every fourth one does the map.
+ */
+const TRACK_MAINTENANCE_GAP_MINUTES = 15;
 
 function safeEquals(a: string, b: string) {
   const left = Buffer.from(a);
@@ -43,9 +60,11 @@ function isAuthorizedCron(request: NextRequest): boolean {
 }
 
 async function handle(request: NextRequest) {
-  // Throttle before the secret check so guessing costs the caller, not the DB.
+  // Throttled before the secret check so guessing costs the caller, not the DB.
+  // Generous enough for a once-a-minute scheduler with retries, tight enough
+  // that brute-forcing the secret is not worth anyone's time.
   const limited = rateLimit(`cron:${clientIp(request.headers)}`, {
-    limit: 30,
+    limit: 10,
     windowMs: 60_000,
   });
   if (!limited.ok) return fail("Too many requests", 429);
@@ -59,22 +78,35 @@ async function handle(request: NextRequest) {
 
   await connectDB();
 
-  /**
-   * Reminders are the job's first duty, but not its only one: naming a stay
-   * costs a rate-limited OpenStreetMap round trip, so the map's backlog is
-   * worked off here too rather than making someone wait for it when they open
-   * the page. Both run on the same 15-minute tick.
-   */
-  const push = isPushConfigured()
-    ? await runNamazReminders(new Date())
-    : null;
+  const now = new Date();
 
-  const track = await runTrackMaintenance();
+  /**
+   * The heartbeat is stamped before any work, and whatever else this call does.
+   * Its job is to answer "is anything calling this endpoint at all?" — which is
+   * the question worth answering when a user reports that no reminder ever
+   * arrives, and it must still be answered on a tick that finds nothing to send.
+   */
+  await recordJobRun(JOB_NOTIFICATIONS, now);
+
+  const push = isPushConfigured() ? await runNamazReminders(now) : null;
+
+  /**
+   * Reminders are the job's first duty, but not its only one: the map's backlog
+   * of unnamed stops is worked off here too, rather than making someone wait for
+   * it when they open the page. It runs on its own slower pace — see above.
+   */
+  const trackDue = await claimPacedJob(
+    JOB_TRACK_MAINTENANCE,
+    TRACK_MAINTENANCE_GAP_MINUTES,
+    now
+  );
+  const track = trackDue ? await runTrackMaintenance() : null;
 
   return ok({
-    ranAt: new Date().toISOString(),
+    ranAt: now.toISOString(),
     /** Null when the deployment has no VAPID keypair — reminders are off. */
     ...(push ?? { pushConfigured: false }),
+    /** Null on the ticks between map passes — not a failure. */
     track,
   });
 }

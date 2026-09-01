@@ -1,0 +1,67 @@
+# Calls TrackDash's reminder job on a schedule.
+#
+# Vercel's Hobby plan runs crons once a day and rejects anything tighter at
+# deploy time, so `vercel.json` registers none and the schedule lives here
+# instead. GitHub Actions is free and needs no account beyond this repository.
+#
+# Two things to know before relying on it alone:
+#
+#   * Five minutes is GitHub's floor, and scheduled runs are queued at low
+#     priority — a tick can land 5–20 minutes late when the platform is busy.
+#     That is fine for the repeat nudges, but it means "It's Asar time" can
+#     arrive well after Asar started. For a punctual start ping, point a
+#     one-minute scheduler (cron-job.org is free) at the same URL; both can run
+#     at once, since the job is idempotent.
+#   * Scheduled workflows are disabled automatically after 60 days with no
+#     commits to the repository. GitHub emails first; re-enable from the Actions
+#     tab, or push anything.
+#
+# Setup — Settings → Secrets and variables → Actions:
+#   APP_URL      https://your-app.vercel.app   (no trailing slash)
+#   CRON_SECRET  the same value as the CRON_SECRET env var on the host
+name: Namaz reminders
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  # Lets you fire one by hand from the Actions tab to prove the wiring works.
+  workflow_dispatch:
+
+# A late tick must never queue up behind an earlier one.
+concurrency:
+  group: namaz-reminders
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the reminder job
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::APP_URL and CRON_SECRET repository secrets are required."
+            exit 1
+          fi
+
+          # The secret travels as a header, never in the URL — query strings end
+          # up in logs and proxy history, and this one is a password.
+          status=$(curl --silent --show-error --location \
+            --max-time 90 --retry 2 --retry-delay 5 \
+            --header "x-cron-secret: ${CRON_SECRET}" \
+            --output response.json --write-out '%{http_code}' \
+            "${APP_URL%/}/api/notifications/run")
+
+          echo "HTTP ${status}"
+          cat response.json || true
+          echo
+
+          if [ "${status}" != "200" ]; then
+            echo "::error::Reminder job returned HTTP ${status}"
+            exit 1
+          fi

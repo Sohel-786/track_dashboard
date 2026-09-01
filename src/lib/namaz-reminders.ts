@@ -22,6 +22,20 @@ export const DEFAULT_REMINDER_INTERVAL_MINUTES = 60;
 export const MIN_REMINDER_INTERVAL_MINUTES = 15;
 export const MAX_REMINDER_INTERVAL_MINUTES = 180;
 
+/**
+ * How late a tick may be and still count as "the window just opened".
+ *
+ * The start ping is not on the interval — it fires the moment a prayer's time
+ * begins, whatever the user's repeat setting. But the job runs on a scheduler,
+ * and a scheduler can be late or restarted mid-afternoon; announcing "it's Asar
+ * time" an hour into Asr would be worse than saying nothing. Past this grace the
+ * first nudge is phrased as a reminder instead.
+ */
+export const START_PING_GRACE_MINUTES = 12;
+
+/** A start announcement, or one of the repeats that follow it. */
+export type ReminderKind = "start" | "repeat";
+
 /** Reminder rows are only interesting while the day is recent. */
 const REMINDER_TTL_DAYS = 7;
 
@@ -30,6 +44,8 @@ export type OpenPrayerSlot = {
   label: string;
   /** Calendar day the prayer belongs to — yesterday for overnight Isha. */
   date: string;
+  startsAt: Date;
+  startsAtLabel: string;
   endsAtLabel: string;
   endsAt: Date;
 };
@@ -54,6 +70,8 @@ export function getOpenPrayerSlot(
         prayer,
         label: NAMAZ_PRAYER_META[prayer].label,
         date: today,
+        startsAt: window.start,
+        startsAtLabel: formatInNamazTz(window.start),
         endsAt: window.end,
         endsAtLabel: formatInNamazTz(window.end),
       };
@@ -66,6 +84,8 @@ export function getOpenPrayerSlot(
       prayer: "isha",
       label: NAMAZ_PRAYER_META.isha.label,
       date: overnight.date,
+      startsAt: new Date(overnight.slot.startsAt),
+      startsAtLabel: overnight.slot.startsAtLabel,
       endsAt: new Date(overnight.slot.endsAt),
       endsAtLabel: overnight.slot.endsAtLabel,
     };
@@ -78,10 +98,17 @@ function minutesLeft(endsAt: Date, now: Date) {
   return Math.max(0, Math.round((endsAt.getTime() - now.getTime()) / 60_000));
 }
 
+/**
+ * What the user actually sees.
+ *
+ * The start ping announces the time itself — it is the whole point of the
+ * feature and says nothing about being late. Every later nudge is phrased as a
+ * reminder, and sharpens into "ends soon" once the window is nearly over.
+ */
 export function buildReminderPayload(
   slot: OpenPrayerSlot,
   now: Date,
-  repeat: boolean
+  kind: ReminderKind
 ): PushPayload {
   const left = minutesLeft(slot.endsAt, now);
   const closing = left <= 30;
@@ -90,19 +117,28 @@ export function buildReminderPayload(
       ? `${Math.floor(left / 60)}h ${left % 60}m left`
       : `${left}m left`;
 
+  const start = kind === "start";
+
   return {
-    title: closing
-      ? `${slot.label} ends soon`
-      : repeat
-        ? `${slot.label} still unmarked`
-        : `${slot.label} time`,
-    body: `Until ${slot.endsAtLabel} · ${remaining}`,
+    title: start
+      ? `It's ${slot.label} time`
+      : closing
+        ? `${slot.label} ends soon`
+        : `${slot.label} still unmarked`,
+    body: start
+      ? `${slot.startsAtLabel} – ${slot.endsAtLabel} · mark it once you've prayed`
+      : `Until ${slot.endsAtLabel} · ${remaining}`,
     url: HOME_PATH,
     /** One live notification per prayer — a repeat replaces the last one. */
     tag: `namaz-${slot.date}-${slot.prayer}`,
     renotify: true,
-    requireInteraction: false,
-    data: { kind: "namaz-reminder", prayer: slot.prayer, date: slot.date },
+    /** The call to prayer stays in the shade until it is acted on. */
+    requireInteraction: start,
+    data: {
+      kind: start ? "namaz-start" : "namaz-reminder",
+      prayer: slot.prayer,
+      date: slot.date,
+    },
     actions: [
       { action: "prayed", title: "Mark prayed" },
       { action: "open", title: "Open" },
@@ -113,21 +149,32 @@ export function buildReminderPayload(
 /**
  * Claim the right to notify this exact slot, atomically.
  *
- * Two overlapping cron runs must not both send. The update only matches a row
- * whose last send is already older than the interval, so exactly one caller
- * wins; the insert path handles the very first reminder for the slot.
+ * Two things are being decided here at once, and only one of them involves the
+ * user's interval:
+ *
+ * - **The start.** A slot with no row has never been announced, so the insert
+ *   *is* the announcement — it happens as soon as the window opens, no matter
+ *   whether the user picked 30m, 1h or 2h. The unique index means exactly one
+ *   caller can win that insert, even if two ticks overlap.
+ * - **The repeats.** Those are on the interval, measured from the last send —
+ *   which, because the start ping set it, lands the first repeat one interval
+ *   after the prayer time began.
+ *
+ * A row inserted long after the window opened (the scheduler was down, or newly
+ * pointed at this deployment) is a reminder rather than a start ping: the time
+ * it would be announcing has already passed.
  */
 async function claimReminderSlot(
+  slot: OpenPrayerSlot,
   userId: string,
-  date: string,
-  prayer: NamazPrayer,
   now: Date,
   intervalMinutes: number
-): Promise<{ claimed: boolean; repeat: boolean }> {
+): Promise<{ claimed: boolean; kind: ReminderKind }> {
   const dueBefore = new Date(now.getTime() - intervalMinutes * 60_000);
   const expiresAt = new Date(
     now.getTime() + REMINDER_TTL_DAYS * 24 * 60 * 60_000
   );
+  const { date, prayer } = slot;
 
   const updated = await NamazReminder.findOneAndUpdate(
     { userId, date, prayer, lastSentAt: { $lte: dueBefore } },
@@ -135,7 +182,11 @@ async function claimReminderSlot(
     { new: true }
   ).lean();
 
-  if (updated) return { claimed: true, repeat: true };
+  if (updated) return { claimed: true, kind: "repeat" };
+
+  const sinceStartMinutes =
+    (now.getTime() - slot.startsAt.getTime()) / 60_000;
+  const atStart = sinceStartMinutes <= START_PING_GRACE_MINUTES;
 
   try {
     await NamazReminder.create({
@@ -144,12 +195,13 @@ async function claimReminderSlot(
       prayer,
       lastSentAt: now,
       sentCount: 1,
+      startAnnouncedAt: atStart ? now : null,
       expiresAt,
     });
-    return { claimed: true, repeat: false };
+    return { claimed: true, kind: atStart ? "start" : "repeat" };
   } catch {
     // Unique index rejected the insert — a row exists and is not due yet.
-    return { claimed: false, repeat: false };
+    return { claimed: false, kind: "repeat" };
   }
 }
 
@@ -157,6 +209,8 @@ export type ReminderRunSummary = {
   checkedUsers: number;
   notifiedUsers: number;
   pushesSent: number;
+  /** How many of the pushes were "it's prayer time" announcements. */
+  startPings: number;
   skipped: number;
   openSlot: string | null;
 };
@@ -164,9 +218,12 @@ export type ReminderRunSummary = {
 /**
  * Send a reminder to every user whose current prayer is still unmarked.
  *
- * Safe to call as often as you like: a user is nudged once when the window
- * opens and then at most once per `namazReminderIntervalMinutes`, and never
- * again once the prayer is marked or the window closes.
+ * Meant to be called about once a minute: that is what makes the start ping
+ * land on the prayer time rather than at the next coarse tick, and every call
+ * that finds nothing due is a couple of indexed reads. A user is announced once
+ * the moment the window opens, nudged again every
+ * `namazReminderIntervalMinutes` after that, and left alone the moment the
+ * prayer is marked or the window closes.
  */
 export async function runNamazReminders(
   now = new Date()
@@ -175,6 +232,7 @@ export async function runNamazReminders(
     checkedUsers: 0,
     notifiedUsers: 0,
     pushesSent: 0,
+    startPings: 0,
     skipped: 0,
     openSlot: null,
   };
@@ -197,12 +255,25 @@ export async function runNamazReminders(
 
   summary.checkedUsers = users.length;
 
+  /**
+   * The open window depends on the school and nothing else, and there are only
+   * a handful of schools — so the sun position is solved at most once per
+   * school per tick instead of once per user.
+   */
+  const slotByMadhab = new Map<NamazMadhabId, OpenPrayerSlot | null>();
+  const openSlotFor = (madhabId: NamazMadhabId) => {
+    if (!slotByMadhab.has(madhabId)) {
+      slotByMadhab.set(madhabId, getOpenPrayerSlot(now, madhabId));
+    }
+    return slotByMadhab.get(madhabId) ?? null;
+  };
+
   for (const user of users) {
     const madhabId: NamazMadhabId = isNamazMadhabId(user.namazMadhab)
       ? user.namazMadhab
       : DEFAULT_NAMAZ_MADHAB;
 
-    const slot = getOpenPrayerSlot(now, madhabId);
+    const slot = openSlotFor(madhabId);
     if (!slot) {
       summary.skipped += 1;
       continue;
@@ -236,10 +307,9 @@ export async function runNamazReminders(
       )
     );
 
-    const { claimed, repeat } = await claimReminderSlot(
+    const { claimed, kind } = await claimReminderSlot(
+      slot,
       String(user._id),
-      slot.date,
-      slot.prayer,
       now,
       interval
     );
@@ -250,12 +320,13 @@ export async function runNamazReminders(
 
     const result = await sendPushToUser(
       String(user._id),
-      buildReminderPayload(slot, now, repeat)
+      buildReminderPayload(slot, now, kind)
     );
 
     if (result.sent > 0) {
       summary.notifiedUsers += 1;
       summary.pushesSent += result.sent;
+      if (kind === "start") summary.startPings += 1;
     }
   }
 
