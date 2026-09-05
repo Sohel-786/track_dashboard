@@ -19,6 +19,14 @@ const isProd = process.env.NODE_ENV === "production";
 const tileHosts = [
   "https://tile.openstreetmap.org",
   "https://*.tile.openstreetmap.org",
+  /**
+   * Both spellings are needed. A CSP wildcard matches sub*domains* only, so
+   * `*.basemaps.cartocdn.com` covers `a.basemaps.cartocdn.com` but *not* the
+   * bare host — which is the one the Light and Dark basemaps actually request.
+   * Without this line the two default basemaps loaded no tiles at all and the
+   * map rendered as an empty grey panel.
+   */
+  "https://basemaps.cartocdn.com",
   "https://*.basemaps.cartocdn.com",
 ];
 

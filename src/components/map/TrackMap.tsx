@@ -53,6 +53,8 @@ export type TrackMapProps = {
   fitKey?: string;
   height?: number;
   className?: string;
+  /** Fired when the person drags or pinches the map themselves. */
+  onUserPan?: () => void;
 };
 
 /** Marker colours, chosen to clear 3:1 on both light and dark tiles. */
@@ -66,6 +68,9 @@ const MARKER_STYLE: Record<
   start: { fill: "#059669", ring: "#ffffff", glyph: "A" },
   end: { fill: "#e11d48", ring: "#ffffff", glyph: "B" },
 };
+
+/** Below this, a recentre is noise — leave the view where it is. */
+const RECENTRE_EPSILON_DEG = 0.00002;
 
 function escapeHtml(value: string) {
   return value
@@ -149,33 +154,162 @@ export default function TrackMap({
   fitKey,
   height = 420,
   className,
+  onUserPan,
 }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
   const overlayRef = useRef<L.LayerGroup | null>(null);
   const fittedKeyRef = useRef<string | null>(null);
+  const onUserPanRef = useRef(onUserPan);
+
+  // Kept in a ref so a new callback identity never tears down the map.
+  useEffect(() => {
+    onUserPanRef.current = onUserPan;
+  }, [onUserPan]);
 
   /* -------------------------------------------------------------- create */
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    const container = containerRef.current;
+    if (!container || mapRef.current) return;
 
-    const map = L.map(containerRef.current, {
+    const map = L.map(container, {
       center: [FALLBACK_CENTER.lat, FALLBACK_CENTER.lng],
       zoom: FALLBACK_ZOOM,
       zoomControl: true,
       attributionControl: true,
-      // Scroll should pan the page until the map is deliberately clicked into.
+      /**
+       * Both wheel-zoom and one-finger drag are handled by hand below, so the
+       * map never swallows a page scroll. Leaflet's own handlers would fight
+       * that, so they stay off.
+       */
       scrollWheelZoom: false,
+      // Keeps a pinch from ending on a jarring fractional zoom level.
+      zoomSnap: 0.5,
     });
-
-    map.on("click", () => map.scrollWheelZoom.enable());
-    map.on("mouseout", () => map.scrollWheelZoom.disable());
 
     L.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
     overlayRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
+
+    /* ------------------------------------------------------- gestures */
+
+    /**
+     * Gesture handling, the bargain every embedded map has to make.
+     *
+     * A full-width map in the middle of a scrolling page is a trap on a phone:
+     * a thumb-swipe meant to scroll past it pans the map instead, and the page
+     * is stuck. Leaflet's defaults do exactly that, because Leaflet assumes the
+     * map *is* the page.
+     *
+     * So on a touch device the map starts inert — the page scrolls straight
+     * through it — and one tap on the veil hands it the gestures. It re-arms
+     * when the map scrolls out of sight, so the trap never comes back.
+     *
+     * (Two-finger-to-pan was the first attempt and is a dead end: Leaflet's own
+     * drag handler ignores a multi-touch pointerdown, so the map received the
+     * gesture and did nothing with it, leaving the map unpannable altogether.)
+     *
+     * Desktop keeps a mouse drag, which is unambiguous, and only the wheel is
+     * intercepted — it scrolls the page unless Ctrl/⌘ is held.
+     */
+    const touchDevice =
+      navigator.maxTouchPoints > 0 ||
+      window.matchMedia("(pointer: coarse)").matches;
+
+    const hint = L.DomUtil.create("div", "trackdash-gesture-hint", container);
+    hint.setAttribute("aria-hidden", "true");
+    let hintTimer = 0;
+
+    const showHint = (text: string) => {
+      hint.textContent = text;
+      hint.classList.add("is-visible");
+      window.clearTimeout(hintTimer);
+      hintTimer = window.setTimeout(
+        () => hint.classList.remove("is-visible"),
+        1600
+      );
+    };
+
+    const hideHint = () => {
+      window.clearTimeout(hintTimer);
+      hint.classList.remove("is-visible");
+    };
+
+    /* -------------------------------------------------- tap to activate */
+
+    const veil = L.DomUtil.create("button", "trackdash-map-veil", container);
+    veil.type = "button";
+    // A span, not a bare text node, so it can sit above the gradient.
+    const veilLabel = L.DomUtil.create("span", "", veil);
+    veilLabel.textContent = "Tap to move the map";
+
+    /** Leaflet starts with its handlers enabled, so this mirrors reality. */
+    let live = true;
+
+    const setLive = (next: boolean) => {
+      if (next === live) return;
+      live = next;
+      if (next) {
+        map.dragging.enable();
+        map.touchZoom.enable();
+      } else {
+        map.dragging.disable();
+        map.touchZoom.disable();
+      }
+      // Drives `touch-action`: the page may scroll through an inert map.
+      container.classList.toggle("trackdash-live", next);
+      veil.classList.toggle("is-visible", !next);
+    };
+
+    if (touchDevice) setLive(false);
+
+    const activate = () => setLive(true);
+    veil.addEventListener("click", activate);
+
+    /**
+     * Re-arm once the map has scrolled away, so returning to it later starts
+     * from the safe state rather than whatever the last visit left behind.
+     */
+    let visibility: IntersectionObserver | null = null;
+    if (touchDevice) {
+      visibility = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) setLive(false);
+          }
+        },
+        { threshold: 0 }
+      );
+      visibility.observe(container);
+    }
+
+    /* -------------------------------------------------------- wheel zoom */
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        // Also stops the browser's own pinch-zoom of the whole page.
+        event.preventDefault();
+        hideHint();
+        const step = event.deltaY > 0 ? -1 : 1;
+        map.setZoomAround(map.mouseEventToLatLng(event), map.getZoom() + step);
+        return;
+      }
+      showHint(
+        /Mac|iPhone|iPad/.test(navigator.userAgent)
+          ? "Use ⌘ + scroll to zoom the map"
+          : "Use Ctrl + scroll to zoom the map"
+      );
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: false });
+
+    const onDragStart = () => {
+      hideHint();
+      onUserPanRef.current?.();
+    };
+    map.on("dragstart", onDragStart);
 
     /**
      * Leaflet measures its container once. Inside a tab panel that container is
@@ -183,10 +317,23 @@ export default function TrackMap({
      * re-measuring on resize is what makes it survive tab switches and rotation.
      */
     const observer = new ResizeObserver(() => map.invalidateSize());
-    observer.observe(containerRef.current);
+    observer.observe(container);
 
     return () => {
+      window.clearTimeout(hintTimer);
+      /**
+       * `map.remove()` tears down Leaflet's own panes but leaves anything else
+       * that was appended to the container, and the container itself outlives a
+       * remount — so without this the overlays are orphaned and a second, live
+       * set is stacked on top of them.
+       */
+      hint.remove();
+      veil.removeEventListener("click", activate);
+      veil.remove();
+      visibility?.disconnect();
       observer.disconnect();
+      container.removeEventListener("wheel", onWheel);
+      map.off("dragstart", onDragStart);
       map.remove();
       mapRef.current = null;
       overlayRef.current = null;
@@ -207,6 +354,8 @@ export default function TrackMap({
       maxZoom: config.maxZoom,
       // Serve @2x tiles to retina screens where the provider offers them.
       detectRetina: true,
+      // Hold a wider ring of tiles so a pan does not flash empty squares.
+      keepBuffer: 3,
     }).addTo(map);
     tileRef.current.bringToBack();
   }, [basemap]);
@@ -332,9 +481,19 @@ export default function TrackMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !center) return;
-    map.setView([center.lat, center.lng], zoom ?? map.getZoom(), {
-      animate: true,
-    });
+
+    const target = L.latLng(center.lat, center.lng);
+    const current = map.getCenter();
+    const sameZoom = zoom === undefined || Math.abs(map.getZoom() - zoom) < 0.01;
+    const samePlace =
+      Math.abs(current.lat - target.lat) < RECENTRE_EPSILON_DEG &&
+      Math.abs(current.lng - target.lng) < RECENTRE_EPSILON_DEG;
+
+    // GPS jitter arrives several times a minute; re-animating for a metre of
+    // drift makes the map feel like it is twitching under the user's finger.
+    if (samePlace && sameZoom) return;
+
+    map.setView(target, zoom ?? map.getZoom(), { animate: true });
   }, [center?.lat, center?.lng, zoom, center]);
 
   return (
@@ -351,7 +510,14 @@ export default function TrackMap({
           background: hsl(var(--muted));
           font: inherit;
           outline: none;
+          /*
+           * Inert by default so a thumb-swipe scrolls the page straight through
+           * the map. The trackdash-live class is added once the veil has been
+           * tapped, handing every gesture back to Leaflet.
+           */
+          touch-action: pan-x pan-y;
         }
+        .leaflet-container.trackdash-live { touch-action: none; }
         .leaflet-control-attribution {
           background: hsl(var(--card) / 0.85) !important;
           color: hsl(var(--muted-foreground)) !important;
@@ -376,6 +542,68 @@ export default function TrackMap({
         }
         .leaflet-popup-content { margin: 10px 12px !important; }
         .trackdash-marker { background: none; border: none; }
+
+        .trackdash-gesture-hint {
+          position: absolute;
+          inset: 0;
+          z-index: 1200;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 1.5rem;
+          text-align: center;
+          font-size: 13px;
+          font-weight: 700;
+          color: #fff;
+          background: rgba(15, 23, 42, 0.55);
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity .18s ease, visibility .18s ease;
+          pointer-events: none;
+        }
+        .trackdash-gesture-hint.is-visible { opacity: 1; visibility: visible; }
+
+        /*
+         * The activation veil. Transparent to the eye but not to the finger:
+         * it takes the tap that wakes the map, and until then every swipe over
+         * it is an ordinary page scroll.
+         */
+        .trackdash-map-veil {
+          position: absolute;
+          inset: 0;
+          z-index: 1100;
+          display: none;
+          /* Top-centre: the only edge with no Leaflet control, no attribution,
+             and no empty-state pill to collide with. */
+          align-items: flex-start;
+          justify-content: center;
+          width: 100%;
+          padding: 0.6rem 0 0;
+          border: 0;
+          font: inherit;
+          background: transparent;
+          cursor: pointer;
+          touch-action: pan-x pan-y;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .trackdash-map-veil.is-visible { display: flex; }
+        .trackdash-map-veil::before {
+          content: "";
+          position: absolute;
+          inset: 0 0 auto;
+          height: 4.5rem;
+          background: linear-gradient(to bottom, rgba(15, 23, 42, .5), transparent);
+          pointer-events: none;
+        }
+        .trackdash-map-veil > span {
+          position: relative;
+          border-radius: 9999px;
+          padding: 0.3rem 0.7rem;
+          font-size: 11px;
+          font-weight: 700;
+          color: #fff;
+          background: rgba(15, 23, 42, .78);
+        }
       `}</style>
       <div
         ref={containerRef}

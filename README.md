@@ -289,6 +289,21 @@ leave it open for the walk. The app keeps a screen wake lock while recording
 where the browser allows it, and says plainly when it is not recording rather
 than quietly losing the journey.
 
+### If location will not turn on
+
+The Live tab names the actual cause and gives the fix for your platform. The
+three it distinguishes, because they need completely different answers:
+
+| What you see | What is wrong | What fixes it |
+| --- | --- | --- |
+| **This page is not served over HTTPS** | Browsers refuse geolocation on an insecure origin. A phone opening `http://192.168.x.x:3002` hits this every time, and is never even prompted. | Use `https://`, or `http://localhost` on the same machine. To test on a phone against the dev server, run `npm run dev:https` and open the `https://` address it prints (accept the self-signed certificate warning once). |
+| **Location is blocked for this site** | The site permission was refused. | Allow it in the address-bar site settings. The page notices the change and re-arms itself — no reload needed. |
+| **Your device could not work out where it is** | The site is allowed, but the OS location service is off, or there is no GPS lock. | Turn on location in the system settings. Note that a desktop or laptop has no GPS chip: it positions by Wi-Fi and is often only accurate to hundreds of metres, which is too rough to record a journey. The Live tab says so rather than silently dropping every fix. |
+
+**Locate me** works without turning tracking on — reading where you are and
+recording where you go are separate things, and only the second one needs
+consent.
+
 ### Privacy
 
 Location history is the most sensitive thing TrackDash stores, and it is treated
@@ -385,8 +400,19 @@ npm run dev
 
 Open [http://localhost:3002](http://localhost:3002) and sign in.
 
-> Push notifications need a secure context. `localhost` counts as secure, so
-> reminders can be tested locally without HTTPS.
+> Push notifications and geolocation both need a secure context. `localhost`
+> counts as secure, so they can be tested on this machine without HTTPS.
+
+To test either of them **on a phone** against the dev server, plain
+`http://<LAN-IP>:3002` will not do — it is not a secure origin, so the browser
+refuses the location request outright. Run the HTTPS dev server instead:
+
+```bash
+npm run dev:https
+```
+
+It listens on every interface with a self-signed certificate; open the
+`https://<LAN-IP>:3002` address on the phone and accept the warning once.
 
 ## Deploy on Vercel (required)
 

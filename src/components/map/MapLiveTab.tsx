@@ -6,12 +6,15 @@ import {
   Crosshair,
   Gauge,
   Loader2,
+  Lock,
+  LocateFixed,
   MapPin,
   MoonStar,
   Navigation,
   Radio,
   RefreshCw,
   Route,
+  SatelliteDish,
   ShieldCheck,
   Timer,
   TriangleAlert,
@@ -25,9 +28,17 @@ import { Switch } from "@/components/ui/switch";
 import { StatTile, EmptyState, SectionCard } from "@/components/dashboard/insight-widgets";
 import { MapCanvas } from "@/components/map/MapCanvas";
 import type { MapMarker } from "@/components/map/TrackMap";
-import { useLiveTracking } from "@/components/map/useLiveTracking";
+import {
+  useLiveTracking,
+  type TrackingState,
+} from "@/components/map/useLiveTracking";
 import { formatClock, KindBadge } from "@/components/map/map-shared";
 import { compassPoint, formatDistance, formatDuration, qiblaBearing } from "@/lib/geo";
+import {
+  checkGeolocation,
+  describeAccuracy,
+  type GeoFailure,
+} from "@/lib/geolocation";
 import type {
   TrackDayResponse,
   TrackNearbyResponse,
@@ -37,6 +48,9 @@ import type {
 
 /** How often the day view is refreshed while a session is running. */
 const DAY_REFRESH_MS = 60_000;
+
+/** Rough fixes tolerated before the UI says the device is not GPS-grade. */
+const COARSE_FIX_PATIENCE = 3;
 
 export function MapLiveTab({
   settings,
@@ -54,6 +68,20 @@ export function MapLiveTab({
   const [enabling, setEnabling] = useState(false);
   const [followMe, setFollowMe] = useState(true);
   const autoStartedRef = useRef(false);
+
+  /**
+   * Whether this page can ask for a position at all.
+   *
+   * Checked once on mount rather than only when the switch is flipped: on a
+   * plain-http address every location request is refused before the user is
+   * prompted, and saying so up front is far kinder than letting them fight a
+   * switch that can never stay on.
+   */
+  const [blocked, setBlocked] = useState<GeoFailure | null>(null);
+  useEffect(() => {
+    const availability = checkGeolocation();
+    setBlocked(availability.ok ? null : availability.failure);
+  }, []);
 
   const loadDay = useCallback(async () => {
     try {
@@ -80,15 +108,40 @@ export function MapLiveTab({
     onError: (message) => toast.error(message),
   });
 
-  const { start, stop, isTracking, state, position, stats, queueSize } = tracking;
+  const {
+    start,
+    stop,
+    retry,
+    locateOnce,
+    locating,
+    isTracking,
+    hasFix,
+    state,
+    position,
+    stats,
+    queueSize,
+    failure,
+    permission,
+    coarseOnly,
+    droppedForAccuracy,
+  } = tracking;
 
   /** Resume automatically when the account asked for that. */
   useEffect(() => {
     if (!settings?.enabled || !settings.autoStart) return;
     if (autoStartedRef.current || isTracking) return;
+    // Auto-start must not fire a permission prompt the browser will only refuse.
+    if (blocked || permission === "denied") return;
     autoStartedRef.current = true;
     start();
-  }, [settings?.enabled, settings?.autoStart, isTracking, start]);
+  }, [
+    settings?.enabled,
+    settings?.autoStart,
+    isTracking,
+    start,
+    blocked,
+    permission,
+  ]);
 
   useEffect(() => {
     if (!isTracking) return;
@@ -132,16 +185,34 @@ export function MapLiveTab({
     }
   }
 
+  /** Centre the map on the user without starting a recording session. */
+  const handleLocate = useCallback(async () => {
+    const fix = await locateOnce();
+    if (!fix) return;
+    setFollowMe(true);
+    toast.success(
+      fix.accuracy != null
+        ? `Found you within ±${Math.round(fix.accuracy)} m`
+        : "Found your position"
+    );
+  }, [locateOnce]);
+
+  /**
+   * Masjids around the current position.
+   *
+   * Takes its own fix when there is none, so the button works before anything
+   * is being recorded — looking up what is nearby has nothing to do with
+   * consenting to have your movements stored.
+   */
   const findNearby = useCallback(async () => {
-    if (!position) {
-      toast.error("Waiting for a position fix first.");
-      return;
-    }
+    const origin = position ?? (await locateOnce());
+    if (!origin) return;
+
     setLoadingNearby(true);
     try {
       const params = new URLSearchParams({
-        lat: String(position.lat),
-        lng: String(position.lng),
+        lat: String(origin.lat),
+        lng: String(origin.lng),
         radius: "1500",
       });
       const result = await api<TrackNearbyResponse>(
@@ -154,13 +225,11 @@ export function MapLiveTab({
           : "No mapped masjid within 1.5 km"
       );
     } catch (error) {
-      toast.error(
-        error instanceof ApiError ? error.message : "Lookup failed"
-      );
+      toast.error(error instanceof ApiError ? error.message : "Lookup failed");
     } finally {
       setLoadingNearby(false);
     }
-  }, [position]);
+  }, [position, locateOnce]);
 
   /* ------------------------------------------------------------ map data */
 
@@ -259,6 +328,10 @@ export function MapLiveTab({
               />
             </div>
 
+            {/* Warn before the opt-in, not after: on an insecure origin the
+                switch would turn on and then never produce a single fix. */}
+            {blocked ? <GeoNotice failure={blocked} tone="error" /> : null}
+
             <div className="rounded-xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
               Positions are read from your device only while this page is open.
               Place names come from OpenStreetMap, looked up by the server — your
@@ -284,6 +357,43 @@ export function MapLiveTab({
   const masjidVisitsToday =
     day?.visits.filter((visit) => visit.isMasjid).length ?? 0;
 
+  /**
+   * One notice at a time, hardest blocker first. A page that cannot use the API
+   * at all outranks a refused permission, which outranks a device that simply
+   * has not managed a fix yet.
+   */
+  const notice: { failure: GeoFailure; tone: NoticeTone } | null = blocked
+    ? { failure: blocked, tone: "error" }
+    : failure
+      ? {
+          failure,
+          tone:
+            failure.kind === "denied" || failure.kind === "unsupported"
+              ? "error"
+              : "warn",
+        }
+      : coarseOnly
+        ? {
+            failure: {
+              kind: "unavailable",
+              title: "Using network positioning",
+              hint: "Your device could not hold a GPS lock, so positions are coming from Wi-Fi and mobile masts instead. They will be far less precise until you are outdoors.",
+              retryable: true,
+            },
+            tone: "warn",
+          }
+        : droppedForAccuracy >= COARSE_FIX_PATIENCE && stats.recordedPoints === 0
+          ? {
+              failure: {
+                kind: "unavailable",
+                title: `Fixes are too rough to record (±${Math.round(position?.accuracy ?? 0)} m)`,
+                hint: "That is a network estimate rather than a GPS reading — common on a desktop or laptop, which has no GPS chip. Open this page on your phone, or step outside, to record a journey.",
+                retryable: true,
+              },
+              tone: "warn",
+            }
+          : null;
+
   return (
     <div className="space-y-5">
       {/* ------------------------------------------------------ control bar */}
@@ -293,18 +403,28 @@ export function MapLiveTab({
             <span
               className={cn(
                 "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                isTracking
+                isTracking && hasFix
                   ? "bg-teal-500/15 text-teal-800 dark:text-teal-300"
-                  : "bg-muted text-muted-foreground"
+                  : isTracking
+                    ? "bg-amber-500/15 text-amber-800 dark:text-amber-300"
+                    : "bg-muted text-muted-foreground"
               )}
             >
               <Radio
-                className={cn("h-5 w-5", isTracking && "animate-slow-pulse")}
+                className={cn(
+                  "h-5 w-5",
+                  isTracking && hasFix && "animate-slow-pulse"
+                )}
               />
             </span>
             <div className="min-w-0">
               <p className="text-base font-bold tracking-tight">
-                {isTracking ? "Recording your journey" : "Tracking paused"}
+                {/* Never claim to be recording before a fix has arrived. */}
+                {isTracking && hasFix
+                  ? "Recording your journey"
+                  : isTracking
+                    ? "Looking for your position"
+                    : "Tracking paused"}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 <StatusLine
@@ -322,19 +442,20 @@ export function MapLiveTab({
             </span>
             <Switch
               checked={isTracking}
+              disabled={blocked !== null}
               onCheckedChange={(next) => (next ? start() : stop())}
               aria-label="Live tracking"
             />
           </div>
         </div>
 
-        {state === "denied" ? (
-          <div className="flex items-start gap-2 border-b border-border bg-rose-500/10 px-4 py-3 text-xs text-rose-900 dark:text-rose-200 sm:px-5">
-            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Your browser is blocking location for this site. Allow it in the
-              address-bar site settings, then flip the switch again.
-            </span>
+        {notice ? (
+          <div className="border-b border-border px-4 py-3 sm:px-5">
+            <GeoNotice
+              failure={notice.failure}
+              tone={notice.tone}
+              onRetry={notice.failure.retryable && !blocked ? retry : undefined}
+            />
           </div>
         ) : null}
 
@@ -361,13 +482,27 @@ export function MapLiveTab({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
+          {/* Works with tracking off — "where am I" is not the same request as
+              "record where I go", and tying them together made the map useless
+              until you consented to be logged. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleLocate()}
+            loading={locating}
+            disabled={blocked !== null}
+          >
+            {!locating ? <LocateFixed className="h-4 w-4" /> : null}
+            Locate me
+          </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => void findNearby()}
             loading={loadingNearby}
-            disabled={!position}
+            disabled={blocked !== null}
           >
             {!loadingNearby ? <MoonStar className="h-4 w-4" /> : null}
             Masjids near me
@@ -413,10 +548,13 @@ export function MapLiveTab({
           !followMe && paths.length > 0 ? `today-${day?.path.length}` : undefined
         }
         height={440}
+        // Dragging the map is a statement that you want to look somewhere else;
+        // snapping back to the live position on the next fix fights that.
+        onUserPan={() => setFollowMe(false)}
         emptyHint={
           isTracking
             ? "Waiting for your first fix…"
-            : "Turn tracking on to draw today's route"
+            : "Press “Locate me”, or turn tracking on to draw today's route"
         }
         toolbar={
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
@@ -558,7 +696,8 @@ export function MapLiveTab({
               </div>
             ) : (
               <p className="py-4 text-sm text-muted-foreground">
-                Turn tracking on to read the Qibla from where you are.
+                Press <span className="font-semibold">Locate me</span> to read
+                the Qibla from where you are.
               </p>
             )}
           </SectionCard>
@@ -613,6 +752,67 @@ export function MapLiveTab({
 
 /* ------------------------------------------------------------- fragments */
 
+type NoticeTone = "error" | "warn";
+
+const NOTICE_ICON = {
+  denied: Lock,
+  insecure: Lock,
+  unsupported: TriangleAlert,
+  unavailable: SatelliteDish,
+  timeout: SatelliteDish,
+  unknown: TriangleAlert,
+} as const;
+
+/**
+ * The one thing the old UI got wrong.
+ *
+ * Every failure used to read "your browser is blocking location — allow it in
+ * site settings", which is wrong advice for the two most common causes and
+ * sends people to a setting that is already correct. Each cause now carries its
+ * own explanation and its own next step.
+ */
+function GeoNotice({
+  failure,
+  tone,
+  onRetry,
+}: {
+  failure: GeoFailure;
+  tone: NoticeTone;
+  onRetry?: () => void;
+}) {
+  const Icon = NOTICE_ICON[failure.kind] ?? TriangleAlert;
+
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-xs",
+        tone === "error"
+          ? "border-rose-600/40 bg-rose-500/10 text-rose-900 dark:border-rose-400/40 dark:text-rose-100"
+          : "border-amber-600/40 bg-amber-500/10 text-amber-900 dark:border-amber-400/40 dark:text-amber-100"
+      )}
+    >
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="font-bold">{failure.title}</p>
+        <p className="mt-0.5 leading-relaxed opacity-90">{failure.hint}</p>
+        {onRetry ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={onRetry}
+          >
+            <RefreshCw className="h-4 w-4" />
+            Try again
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function Explainer({
   icon: Icon,
   title,
@@ -649,24 +849,35 @@ function StatusLine({
   accuracy,
   queueSize,
 }: {
-  state: string;
+  state: TrackingState;
   accuracy: number | null;
   queueSize: number;
 }) {
+  if (state === "insecure") return <>Location needs an https:// page</>;
   if (state === "denied") return <>Location permission denied</>;
   if (state === "unsupported") return <>This browser has no Geolocation API</>;
-  if (state === "starting") {
+  if (state === "unavailable") return <>Device cannot determine a position</>;
+
+  if (state === "starting" || state === "searching") {
     return (
       <span className="inline-flex items-center gap-1.5">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Waiting for a fix…
+        {state === "starting" ? "Waiting for a fix…" : "Signal lost — retrying…"}
       </span>
     );
   }
+
   if (state === "tracking") {
+    const quality = describeAccuracy(accuracy);
     return (
       <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="inline-flex items-center gap-1">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1",
+            quality.coarse && "text-amber-800 dark:text-amber-300"
+          )}
+          title={quality.label}
+        >
           <Gauge className="h-3 w-3" />
           {accuracy ? `±${Math.round(accuracy)} m` : "Locating"}
         </span>
@@ -684,5 +895,6 @@ function StatusLine({
       </span>
     );
   }
+
   return <>Flip the switch to start recording this journey</>;
 }
